@@ -14,6 +14,7 @@ import { useCampus } from '@/stores/campus'
 import TaskForm from '@/components/TaskForm.vue'
 import DeadlineReview from '@/components/DeadlineReview.vue'
 import CancellationReview from '@/components/CancellationReview.vue'
+import SplitReview from '@/components/SplitReview.vue'
 const store = useCampus()
 const route = useRoute()
 const router = useRouter()
@@ -58,6 +59,13 @@ watch(
     }
   },
   { immediate: true },
+)
+watch(
+  () => store.inbox.find((i) => i.id === selectedId.value)?.status,
+  (status) => {
+    const item = store.inbox.find((i) => i.id === selectedId.value)
+    if (status && item?.split_items.length) tab.value = status
+  },
 )
 watch(
   () => [selected.value?.id, selected.value?.status],
@@ -149,29 +157,47 @@ const methodName = (method: string) =>
         @click="select(item)"
       >
         <b
-          >{{ item.action === 'review' ? '🗓️' : item.action === 'ignore' ? '💬' : '✨' }}
-          {{ item.fields.title || item.message.text.slice(0, 28) }}</b
+          >{{
+            item.split_supported
+              ? '🧩'
+              : item.action === 'review'
+                ? '🗓️'
+                : item.action === 'ignore'
+                  ? '💬'
+                  : '✨'
+          }}
+          {{
+            item.split_supported
+              ? '多任务通知'
+              : item.fields.title || item.message.text.slice(0, 28)
+          }}</b
         ><small>{{ item.message.source }} · {{ displayDate(item.message.sent_at) }}</small
         ><span>{{
           item.status === 'processing'
             ? '正在识别'
             : item.status === 'accepted'
-              ? item.cancellation_change
-                ? item.cancellation_change.reverted
-                  ? '取消已撤销'
-                  : '已取消原任务'
-                : item.deadline_change
-                  ? item.deadline_change.reverted
-                    ? '更新已撤销'
-                    : '已更新原任务'
-                  : '已创建任务'
+              ? item.split_items.length
+                ? `已创建 ${item.split_items.filter((d) => d.status === 'accepted').length} 项任务`
+                : item.cancellation_change
+                  ? item.cancellation_change.reverted
+                    ? '取消已撤销'
+                    : '已取消原任务'
+                  : item.deadline_change
+                    ? item.deadline_change.reverted
+                      ? '更新已撤销'
+                      : '已更新原任务'
+                    : '已创建任务'
               : item.status === 'ignored'
                 ? '已忽略'
-                : item.action === 'review'
-                  ? '变更待核对'
-                  : item.action === 'ignore'
-                    ? '可能无需创建任务'
-                    : '等待你确认'
+                : item.split_items.length
+                  ? `已创建 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
+                  : item.split_supported
+                    ? '多任务待拆分'
+                    : item.action === 'review'
+                      ? '变更待核对'
+                      : item.action === 'ignore'
+                        ? '可能无需创建任务'
+                        : '等待你确认'
         }}</span>
       </button>
     </aside>
@@ -183,7 +209,14 @@ const methodName = (method: string) =>
           {{ selected.message.source }}<br />发送于 {{ displayDate(selected.message.sent_at, true)
           }}<br />消息时区：{{ selected.message.timezone }}<br />{{ methodName(selected.method) }}
         </div>
-        <div v-if="Object.keys(selected.evidence).length" class="ci-sourceevidence">
+        <div
+          v-if="
+            Object.keys(selected.evidence).length &&
+            !selected.split_supported &&
+            !selected.split_items.length
+          "
+          class="ci-sourceevidence"
+        >
           <h3>识别依据</h3>
           <p v-for="(value, key) in selected.evidence" :key="key">
             <b>{{
@@ -215,6 +248,11 @@ const methodName = (method: string) =>
             刷新结果
           </button></template
         >
+        <SplitReview
+          v-else-if="selected.split_supported || selected.split_items.length"
+          :key="selected.id"
+          :item="selected"
+        />
         <template v-else-if="selected.status === 'accepted'"
           ><h3>
             {{

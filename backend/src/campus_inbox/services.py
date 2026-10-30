@@ -20,6 +20,7 @@ from campus_inbox.extraction import (
     deadline_supported,
     extract_rules,
     merge_model,
+    numbered_parts,
 )
 from campus_inbox.models import (
     CancellationChange,
@@ -27,6 +28,7 @@ from campus_inbox.models import (
     DeadlineProposal,
     Message,
     ModelSettings,
+    SplitDraft,
     Suggestion,
     Task,
     TaskEvent,
@@ -40,6 +42,7 @@ from campus_inbox.schemas import (
     InboxItem,
     LocalModelConfig,
     MessageRead,
+    SplitDraftRead,
     TaskDetail,
     TaskFields,
     TaskRead,
@@ -113,6 +116,13 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     task = session.exec(select(Task).where(Task.suggestion_id == suggestion.id)).first()
     change = session.get(DeadlineChange, suggestion.id)
     cancellation = session.get(CancellationChange, suggestion.id)
+    items = list(
+        session.exec(
+            select(SplitDraft)
+            .where(SplitDraft.suggestion_id == suggestion.id)
+            .order_by(SplitDraft.position)
+        )
+    )
     message = get_or_404(session, Message, suggestion.message_id)
     supported = suggestion.action == "review" and deadline_supported(message.text)
     warnings = [
@@ -134,7 +144,9 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
             TaskRead.model_validate(t) for t in matching_tasks(session, suggestion.fields)
         ],
         task_id=(
-            task.id
+            None
+            if items
+            else task.id
             if task
             else change.task_id
             if change
@@ -147,6 +159,16 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         cancellation_change=cancellations.change_read(session, cancellation)
         if cancellation
         else None,
+        split_supported=suggestion.action == "review" and bool(numbered_parts(message.text)[1]),
+        split_items=[
+            SplitDraftRead(
+                **item.model_dump(),
+                matched_tasks=[
+                    TaskRead.model_validate(t) for t in matching_tasks(session, item.fields)
+                ],
+            )
+            for item in items
+        ],
         updated_at=suggestion.updated_at,
         deadline_supported=supported,
         deadline_change=change_read(session, change) if change else None,
@@ -220,6 +242,8 @@ def import_message(session: Session, body: ImportMessage, provider_factory) -> S
 
 
 def retry(session: Session, suggestion: Suggestion, provider_factory) -> Suggestion:
+    if session.exec(select(SplitDraft).where(SplitDraft.suggestion_id == suggestion.id)).first():
+        raise HTTPException(409, "已生成拆分草稿，请逐项编辑核对，避免重新识别覆盖处理进度。")
     changed = session.execute(
         update(Suggestion)
         .where(
@@ -240,6 +264,8 @@ def snapshot(task: Task) -> dict:
 
 
 def accept(session: Session, suggestion: Suggestion, body: AcceptSuggestion) -> Task:
+    if session.exec(select(SplitDraft).where(SplitDraft.suggestion_id == suggestion.id)).first():
+        raise HTTPException(409, "多任务通知请逐项确认草稿。")
     existing = session.exec(select(Task).where(Task.suggestion_id == suggestion.id)).first()
     if existing:
         return existing
@@ -360,7 +386,8 @@ def detail(session: Session, task: Task) -> TaskDetail:
     changes = list(session.exec(select(DeadlineChange).where(DeadlineChange.task_id == task.id)))
     by_event = {change.event_id: change for change in changes}
     by_undo = {change.undo_event_id: change for change in changes if change.undo_event_id}
-    evidence = dict(suggestion.evidence)
+    split_draft = session.exec(select(SplitDraft).where(SplitDraft.task_id == task.id)).first()
+    evidence = dict(split_draft.evidence if split_draft else suggestion.evidence)
     prior_due = {}
     for event in events:
         if event.operation == "update":

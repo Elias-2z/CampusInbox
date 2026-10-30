@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import cancellations, deadlines, services
+from campus_inbox import cancellations, deadlines, services, splitting
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
 from campus_inbox.models import ModelSettings, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
@@ -25,6 +25,9 @@ from campus_inbox.schemas import (
     ImportMessage,
     InboxItem,
     LocalModelConfig,
+    SplitAccept,
+    SplitDecision,
+    SplitEdit,
     TaskDetail,
     TaskFields,
     TaskRead,
@@ -148,12 +151,42 @@ def create_app(db_path: Path | None = None, provider_factory=OllamaProvider) -> 
         return cancellations.undo(session, suggestion_id)
 
     @application.post(
+        "/api/suggestions/{suggestion_id}/split", response_model=InboxItem, tags=["split tasks"]
+    )
+    def split_suggestion(suggestion_id: str, session: WriteDB):
+        return splitting.generate(session, suggestion_id)
+
+    @application.patch(
+        "/api/split-drafts/{draft_id}", response_model=InboxItem, tags=["split tasks"]
+    )
+    def save_split(draft_id: str, body: SplitEdit, session: WriteDB):
+        return splitting.save(session, draft_id, body)
+
+    @application.post(
+        "/api/split-drafts/{draft_id}/accept", response_model=TaskRead, tags=["split tasks"]
+    )
+    def accept_split(draft_id: str, body: SplitAccept, session: WriteDB):
+        return splitting.accept(session, draft_id, body)
+
+    @application.post(
+        "/api/split-drafts/{draft_id}/{operation}", response_model=InboxItem, tags=["split tasks"]
+    )
+    def decide_split(
+        draft_id: str, operation: Literal["ignore", "reopen"], body: SplitDecision, session: WriteDB
+    ):
+        return splitting.decide(session, draft_id, body.expected_updated_at, operation == "reopen")
+
+    @application.post(
         "/api/suggestions/{suggestion_id}/{operation}", response_model=InboxItem, tags=["inbox"]
     )
     def change_suggestion(
         suggestion_id: str, operation: Literal["ignore", "reopen"], session: WriteDB
     ):
         suggestion = services.get_or_404(session, Suggestion, suggestion_id)
+        if operation == "ignore" and splitting.drafts(session, suggestion_id):
+            raise HTTPException(409, "已生成拆分草稿，请逐项处理或跳过剩余草稿。")
+        if operation == "reopen" and splitting.drafts(session, suggestion_id):
+            raise HTTPException(409, "拆分通知请使用各条目中的恢复待审核操作。")
         expected, target = (
             ("pending", "ignored") if operation == "ignore" else ("ignored", "pending")
         )

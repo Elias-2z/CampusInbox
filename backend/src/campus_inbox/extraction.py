@@ -47,6 +47,27 @@ CANCELLATION = re.compile(
 )
 
 
+LIST_MARKER = re.compile(r"(?m)^\s*(?:([0-9]{1,2})[.、．]|[（(]([0-9]{1,2})[)）])\s*")
+
+
+def numbered_parts(text: str) -> tuple[str, list[str]]:
+    markers = list(LIST_MARKER.finditer(text))
+    if len(markers) < 2 or len(markers) > 20:
+        return "", []
+    numbers = [int(m[1] or m[2]) for m in markers]
+    if numbers != list(range(1, len(markers) + 1)):
+        return "", []
+    parts = [
+        text[m.end() : markers[i + 1].start() if i + 1 < len(markers) else len(text)].strip()
+        for i, m in enumerate(markers)
+    ]
+    return (text[: markers[0].start()].strip(), parts) if all(parts) else ("", [])
+
+
+def is_multiple(text: str) -> bool:
+    return len(list(LIST_MARKER.finditer(text))) >= 2
+
+
 CANCEL_ACTION = re.compile(r"取消|作废|不(?:用|需要|必)(?:再)?(?:提交|上交|交)|无需(?:再)?提交")
 
 
@@ -67,7 +88,7 @@ def cancellation_subject(text: str) -> str:
                 r"截止|限制|要求|资格|预约|报名|上传|文件名|命名|改为|调整|另行通知|纸质|电子版|线上|线下|仍需|照常|仅|但|不过|恢复|重新|改成",
                 text,
             ),
-            len(re.findall(r"(?:^|\n)\s*\d+[.、．]", text)) >= 2,
+            is_multiple(text),
         ]
     ):
         return ""
@@ -121,7 +142,7 @@ def deadline_supported(text: str) -> bool:
             CANCELLATION.search(text),
             unchanged,
             question,
-            len(re.findall(r"(?:^|\n)\s*\d+[.、．]", text)) >= 2,
+            is_multiple(text),
         ]
     )
 
@@ -352,14 +373,18 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
         else "other"
     )
     result.fields["kind"] = kind
-    if len(re.findall(r"(?:^|\n)\s*\d+[.、．]", text)) >= 2:
+    if is_multiple(text):
         result.action = "review"
-        result.warnings.append("这段通知可能包含多个任务，请拆分后分别导入。")
-    result.needs_llm = not cancellation_supported(text) and not (
-        title
-        and deadline.due_at
-        and not deadline.warnings
-        and (result.action == "create" or deadline_supported(text))
+        result.warnings.append("这段通知包含多个条目，请生成拆分草稿后逐项核对。")
+    result.needs_llm = (
+        not is_multiple(text)
+        and not cancellation_supported(text)
+        and not (
+            title
+            and deadline.due_at
+            and not deadline.warnings
+            and (result.action == "create" or deadline_supported(text))
+        )
     )
     return result
 

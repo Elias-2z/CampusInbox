@@ -48,8 +48,23 @@ export interface InboxItem {
   updated_at: string
   cancellation_supported: boolean
   cancellation_change: DeadlineChange | null
+  split_supported: boolean
+  split_items: SplitDraft[]
   deadline_supported: boolean
   deadline_change: DeadlineChange | null
+}
+export interface SplitDraft {
+  id: string
+  position: number
+  quote: string
+  status: 'pending' | 'accepted' | 'ignored'
+  can_create: boolean
+  fields: Partial<TaskInput>
+  evidence: Record<string, Evidence>
+  warnings: string[]
+  matched_tasks: Task[]
+  task_id: string | null
+  updated_at: string
 }
 export interface TaskEvent {
   id: string

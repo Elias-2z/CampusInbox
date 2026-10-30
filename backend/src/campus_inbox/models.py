@@ -40,7 +40,7 @@ class Suggestion(SQLModel, table=True):
 
 class Task(SQLModel, table=True):
     id: str = Field(default_factory=uid, primary_key=True)
-    suggestion_id: str = Field(foreign_key="suggestion.id", unique=True, index=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
     message_id: str = Field(foreign_key="message.id", index=True)
     title: str
     course: str = ""
@@ -115,3 +115,18 @@ class CancellationChange(SQLModel, table=True):
     event_id: str = Field(foreign_key="taskevent.id", unique=True)
     applied_version: int
     undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)
+
+
+class SplitDraft(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
+    position: int
+    quote: str
+    status: str = "pending"
+    can_create: bool = True
+    fields: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    evidence: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    warnings: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    task_id: str | None = Field(default=None, foreign_key="task.id", unique=True)
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)

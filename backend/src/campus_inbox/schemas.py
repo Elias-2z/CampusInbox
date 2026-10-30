@@ -189,6 +189,53 @@ class TaskDetail(BaseModel):
     method: str
 
 
+class SplitDraftRead(ReadModel):
+    id: str
+    position: int
+    quote: str
+    status: Literal["pending", "accepted", "ignored"]
+    can_create: bool
+    fields: dict
+    evidence: dict
+    warnings: list[str]
+    matched_tasks: list[TaskRead]
+    task_id: str | None
+    updated_at: Timestamp
+
+
+class SplitAccept(AcceptSuggestion):
+    expected_updated_at: datetime
+
+    @field_validator("expected_updated_at")
+    @classmethod
+    def aware_revision(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("草稿修订时间必须包含时区")
+        return value
+
+
+class SplitEdit(TaskFields):
+    expected_updated_at: datetime
+
+    @field_validator("expected_updated_at")
+    @classmethod
+    def aware_revision(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("草稿修订时间必须包含时区")
+        return value
+
+
+class SplitDecision(BaseModel):
+    expected_updated_at: datetime
+
+    @field_validator("expected_updated_at")
+    @classmethod
+    def aware_revision(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("草稿修订时间必须包含时区")
+        return value
+
+
 class InboxItem(BaseModel):
     id: str
     status: Literal["processing", "pending", "accepted", "ignored"]
@@ -203,6 +250,8 @@ class InboxItem(BaseModel):
     updated_at: Timestamp
     cancellation_supported: bool
     cancellation_change: CancellationChangeRead | None = None
+    split_supported: bool
+    split_items: list[SplitDraftRead]
     deadline_supported: bool
     deadline_change: DeadlineChangeRead | None = None
 

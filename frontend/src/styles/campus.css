@@ -1265,3 +1265,23 @@ a {
     min-height: 44px;
   }
 }
+
+.ci-split-progress {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--ci-lime, #d8f36a);
+  font-weight: 700;
+}
+.ci-split-card {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 2px dashed #e4ddf3;
+  min-width: 0;
+}
+.ci-split-quote {
+  padding: 14px;
+  border-radius: 14px;
+  background: #fff4c7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
