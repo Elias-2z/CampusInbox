@@ -161,11 +161,29 @@ class DeadlineChangeRead(BaseModel):
     reverted: bool
 
 
+class CancellationPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str = Field(min_length=1)
+
+
+class CancellationPreview(BaseModel):
+    id: str
+    suggestion_id: str
+    task: TaskRead
+    proposed_status: Literal["cancelled"] = "cancelled"
+    created_at: Timestamp
+
+
+class CancellationChangeRead(DeadlineChangeRead):
+    pass
+
+
 class TaskDetail(BaseModel):
     task: TaskRead
     source: MessageRead
     sources: list[MessageRead]
     deadline_changes: list[DeadlineChangeRead]
+    cancellation_changes: list[CancellationChangeRead]
     events: list[EventRead]
     evidence: dict
     method: str
@@ -183,6 +201,8 @@ class InboxItem(BaseModel):
     matched_tasks: list[TaskRead]
     task_id: str | None = None
     updated_at: Timestamp
+    cancellation_supported: bool
+    cancellation_change: CancellationChangeRead | None = None
     deadline_supported: bool
     deadline_change: DeadlineChangeRead | None = None
 

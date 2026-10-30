@@ -140,6 +140,15 @@ export const useCampus = defineStore('campus', () => {
         }),
       )
   }
+  function registerCancellationUndo(change: DeadlineChange) {
+    if (change.can_undo) setUndo(() => post(`/cancellation-changes/${change.suggestion_id}/undo`))
+  }
+  async function undoCancellation(change: DeadlineChange) {
+    await mutate(
+      () => post<DeadlineChange>(`/cancellation-changes/${change.suggestion_id}/undo`),
+      '本次取消已撤销，任务已恢复原状态。',
+    )
+  }
   function registerDeadlineUndo(change: DeadlineChange) {
     if (change.can_undo) setUndo(() => post(`/deadline-changes/${change.suggestion_id}/undo`))
   }
@@ -180,6 +189,8 @@ export const useCampus = defineStore('campus', () => {
     changeStatus,
     archive,
     ignore,
+    registerCancellationUndo,
+    undoCancellation,
     registerDeadlineUndo,
     undoDeadline,
     errorMessage,

@@ -301,7 +301,8 @@ async def test_additive_schema_initialization_preserves_old_data_and_model_setti
     tables = [
         table
         for table in SQLModel.metadata.sorted_tables
-        if table.name not in {"deadlineproposal", "deadlinechange"}
+        if table.name
+        not in {"deadlineproposal", "deadlinechange", "cancellationproposal", "cancellationchange"}
     ]
     SQLModel.metadata.create_all(engine, tables=tables)
     with Session(engine) as session:

@@ -47,6 +47,65 @@ CANCELLATION = re.compile(
 )
 
 
+CANCEL_ACTION = re.compile(r"取消|作废|不(?:用|需要|必)(?:再)?(?:提交|上交|交)|无需(?:再)?提交")
+
+
+def cancellation_subject(text: str) -> str:
+    """Only explicit single-task cancellation, excluding questions and mixed changes."""
+    if any(
+        [
+            re.search(r"[？?]|是否|能否|可否|能不能|可不可以|(?:取消|作废)(?:了)?(?:吗|么)", text),
+            re.search(
+                r"(?:未|不|没有|并非|并未|不要|不能|无需|尚未|暂不)(?:被)?(?:取消|作废)|取消.{0,6}取消",
+                text,
+            ),
+            re.search(
+                r"如果|假如|可能|或许|据说|听说|建议|考虑|计划|拟|预计|还没|没(?:有)?说", text
+            ),
+            DEADLINE_CHANGE.search(text),
+            re.search(
+                r"截止|限制|要求|资格|预约|报名|上传|文件名|命名|改为|调整|另行通知|纸质|电子版|线上|线下|仍需|照常|仅|但|不过|恢复|重新|改成",
+                text,
+            ),
+            len(re.findall(r"(?:^|\n)\s*\d+[.、．]", text)) >= 2,
+        ]
+    ):
+        return ""
+    subjects = []
+    for clause in re.split(r"[，。；\n：:]", text):
+        clause = clause.strip()
+        action = CANCEL_ACTION.search(clause)
+        if not action:
+            if TASK_WORDS.search(clause):
+                return ""
+            continue
+        tail = clause[action.end() :].strip()
+        subject = clause[: action.start()].strip(" 《》")
+        if subject and tail not in {"", "了"}:
+            return ""
+        if not subject and action[0] in {"取消", "作废"}:
+            subject = clause[action.end() :].strip(" 《》")
+        subject = re.sub(r"^(?:关于|通知|请注意|本次|本周|原定的?|现决定)", "", subject)
+        subject = re.sub(r"(?:已|现已|正式|予以|的)?$", "", subject).strip(" 《》")
+        for course in COURSES:
+            if subject.startswith(course):
+                subject = subject[len(course) :].lstrip("的 ")
+                break
+        if subject in {"", "本次", "本周", "现已", "请大家", "同学们"}:
+            continue
+        if re.search(r"和|以及|、|与|及|全部|所有|等任务", subject):
+            return ""
+        if 2 <= len(subject) <= 100 and TASK_WORDS.search(subject):
+            subjects.append(subject)
+        else:
+            return ""
+    return subjects[0] if subjects and len(set(subjects)) == 1 else ""
+
+
+def cancellation_supported(text: str) -> bool:
+    return bool(cancellation_subject(text))
+
+
 def deadline_supported(text: str) -> bool:
     unchanged = re.search(
         r"(?:截止|提交|交付|上交)(?:时间|日期|期限)?(?:仍然|保持)?(?:不变|未变|不调整|不更改)",
@@ -241,17 +300,23 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
             "remarks": "",
         }
     )
-    if CHANGE_WORDS.search(text) or DEADLINE_CHANGE.search(text):
+    if CHANGE_WORDS.search(text) or DEADLINE_CHANGE.search(text) or cancellation_supported(text):
         result.action = "review"
         result.warnings.append(
             "检测到截止时间变更，请核对目标任务和新旧时间后确认。"
             if deadline_supported(text)
-            else "检测到其他变更或取消信息：本版仅提示核对，不自动修改或创建任务。"
+            else "检测到任务取消，请核对目标任务后确认。"
+            if cancellation_supported(text)
+            else "检测到其他变更或取消信息，请人工核对，不自动修改或创建任务。"
         )
     elif not TASK_WORDS.search(text):
         result.action = "ignore"
         result.warnings.append("未发现明确任务线索。可忽略，或通过“新建任务”手动记录。")
-    title = (infer_change_subject(text) if deadline_supported(text) else "") or infer_title(text)
+    title = (
+        cancellation_subject(text)
+        or (infer_change_subject(text) if deadline_supported(text) else "")
+        or infer_title(text)
+    )
     if title:
         result.fields["title"] = title
         result.evidence["title"] = {"method": "rule", "quote": title}
@@ -259,7 +324,9 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
     if course:
         result.fields["course"] = course
         result.evidence["course"] = {"method": "rule", "quote": course}
-    deadline = parse_deadline(text, sent_at, timezone)
+    deadline = (
+        DateResult() if cancellation_supported(text) else parse_deadline(text, sent_at, timezone)
+    )
     result.fields["due_at"] = deadline.due_at.isoformat() if deadline.due_at else None
     result.warnings.extend(deadline.warnings)
     if deadline.quote:
@@ -288,7 +355,7 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
     if len(re.findall(r"(?:^|\n)\s*\d+[.、．]", text)) >= 2:
         result.action = "review"
         result.warnings.append("这段通知可能包含多个任务，请拆分后分别导入。")
-    result.needs_llm = not (
+    result.needs_llm = not cancellation_supported(text) and not (
         title
         and deadline.due_at
         and not deadline.warnings

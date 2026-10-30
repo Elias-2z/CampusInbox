@@ -13,6 +13,7 @@ import {
 import { useCampus } from '@/stores/campus'
 import TaskForm from '@/components/TaskForm.vue'
 import DeadlineReview from '@/components/DeadlineReview.vue'
+import CancellationReview from '@/components/CancellationReview.vue'
 const store = useCampus()
 const route = useRoute()
 const router = useRouter()
@@ -155,11 +156,15 @@ const methodName = (method: string) =>
           item.status === 'processing'
             ? '正在识别'
             : item.status === 'accepted'
-              ? item.deadline_change
-                ? item.deadline_change.reverted
-                  ? '更新已撤销'
-                  : '已更新原任务'
-                : '已创建任务'
+              ? item.cancellation_change
+                ? item.cancellation_change.reverted
+                  ? '取消已撤销'
+                  : '已取消原任务'
+                : item.deadline_change
+                  ? item.deadline_change.reverted
+                    ? '更新已撤销'
+                    : '已更新原任务'
+                  : '已创建任务'
               : item.status === 'ignored'
                 ? '已忽略'
                 : item.action === 'review'
@@ -213,22 +218,38 @@ const methodName = (method: string) =>
         <template v-else-if="selected.status === 'accepted'"
           ><h3>
             {{
-              selected.deadline_change
-                ? selected.deadline_change.reverted
-                  ? '↶ 本次更新已撤销'
-                  : '✅ 已更新原任务'
-                : '✅ 已创建正式任务'
+              selected.cancellation_change
+                ? selected.cancellation_change.reverted
+                  ? '↶ 本次取消已撤销'
+                  : '✅ 已取消原任务'
+                : selected.deadline_change
+                  ? selected.deadline_change.reverted
+                    ? '↶ 本次更新已撤销'
+                    : '✅ 已更新原任务'
+                  : '✅ 已创建正式任务'
             }}
           </h3>
           <p class="ci-notice ci-before">
             {{
-              selected.deadline_change
-                ? selected.deadline_change.reverted
-                  ? '原截止时间已恢复，通知与修改历史仍然保留。'
-                  : '这条变更已应用到原任务，没有创建重复任务。'
-                : '这条通知已经处理，重复导入不会再次创建任务。'
+              selected.cancellation_change
+                ? selected.cancellation_change.reverted
+                  ? '任务已恢复原状态，通知和历史仍保留。'
+                  : '取消通知已关联原任务，任务内容仍保留。'
+                : selected.deadline_change
+                  ? selected.deadline_change.reverted
+                    ? '原截止时间已恢复，通知与修改历史仍然保留。'
+                    : '这条变更已应用到原任务，没有创建重复任务。'
+                  : '这条通知已经处理，重复导入不会再次创建任务。'
             }}
           </p>
+          <button
+            v-if="selected.cancellation_change?.can_undo"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.undoCancellation(selected.cancellation_change)"
+          >
+            撤销本次取消 ↶
+          </button>
           <button
             v-if="selected.deadline_change?.can_undo"
             class="ci-btn cursor-interaction"
@@ -278,7 +299,16 @@ const methodName = (method: string) =>
               >{{ task.title }} · {{ displayDate(task.due_at) }} ↗</RouterLink
             >
           </div>
-          <DeadlineReview v-if="selected.deadline_supported" :key="selected.id" :item="selected" />
+          <CancellationReview
+            v-if="selected.cancellation_supported"
+            :key="selected.id"
+            :item="selected"
+          />
+          <DeadlineReview
+            v-else-if="selected.deadline_supported"
+            :key="selected.id"
+            :item="selected"
+          />
           <form v-else-if="selected.action === 'create'" @submit.prevent="accept">
             <TaskForm v-model="draft" :busy="store.busy" :evidence="selected.evidence" /><label
               v-if="selected.matched_tasks.length"
@@ -305,7 +335,10 @@ const methodName = (method: string) =>
               </button>
             </div>
           </form>
-          <div v-else-if="!selected.deadline_supported" class="ci-actions">
+          <div
+            v-else-if="!selected.deadline_supported && !selected.cancellation_supported"
+            class="ci-actions"
+          >
             <button
               class="ci-btn cursor-interaction"
               :disabled="store.busy"
@@ -318,7 +351,7 @@ const methodName = (method: string) =>
           </div>
           <div class="ci-actions ci-review-footer">
             <button
-              v-if="selected.deadline_supported"
+              v-if="selected.deadline_supported || selected.cancellation_supported"
               class="ci-btn ci-text cursor-interaction"
               :disabled="store.busy"
               @click="store.ignore(selected)"

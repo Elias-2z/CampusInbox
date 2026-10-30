@@ -197,6 +197,24 @@ function eventValue(key: string, value: unknown) {
             更新后已有其他编辑，请核对下方历史后手动调整。
           </p>
         </section>
+        <section
+          v-for="change in info.cancellation_changes"
+          :key="change.suggestion_id"
+          class="ci-deadline-history"
+        >
+          <b>{{ change.reverted ? '↶ 取消已撤销' : '📌 已确认的取消通知' }}</b>
+          <button
+            v-if="change.can_undo"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.undoCancellation(change)"
+          >
+            撤销本次取消 ↶
+          </button>
+          <p v-else-if="!change.reverted" class="ci-notice">
+            取消后已有其他编辑，请核对下方历史后手动调整。
+          </p>
+        </section>
         <details class="ci-detailsection" open>
           <summary class="cursor-interaction">📎 通知来源 · {{ info.sources.length }} 条</summary>
           <article v-for="(source, index) in info.sources" :key="source.id" class="ci-linkedsource">
@@ -233,7 +251,11 @@ function eventValue(key: string, value: unknown) {
                   ? '用户确认截止时间变更'
                   : event.operation === 'deadline_undo'
                     ? '撤销截止时间变更'
-                    : '用户更新任务'
+                    : event.operation === 'cancel'
+                      ? '用户确认取消任务'
+                      : event.operation === 'cancel_undo'
+                        ? '撤销取消任务'
+                        : '用户更新任务'
             }}</b
             ><small
               >{{ displayDate(event.created_at, true) }} ·

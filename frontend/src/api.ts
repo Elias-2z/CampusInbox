@@ -46,6 +46,8 @@ export interface InboxItem {
   matched_tasks: Task[]
   task_id: string | null
   updated_at: string
+  cancellation_supported: boolean
+  cancellation_change: DeadlineChange | null
   deadline_supported: boolean
   deadline_change: DeadlineChange | null
 }
@@ -63,6 +65,7 @@ export interface TaskDetail {
   source: Message
   sources: Message[]
   deadline_changes: DeadlineChange[]
+  cancellation_changes: DeadlineChange[]
   events: TaskEvent[]
   evidence: Record<string, Evidence>
   method: string
@@ -74,6 +77,13 @@ export interface DeadlinePreview {
   proposed_due_at: string
   warnings: string[]
   evidence: Evidence
+  created_at: string
+}
+export interface CancellationPreview {
+  id: string
+  suggestion_id: string
+  task: Task
+  proposed_status: 'cancelled'
   created_at: string
 }
 export interface DeadlineChange {

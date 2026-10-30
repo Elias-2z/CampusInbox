@@ -10,12 +10,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import deadlines, services
+from campus_inbox import cancellations, deadlines, services
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
 from campus_inbox.models import ModelSettings, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
+    CancellationChangeRead,
+    CancellationPreview,
+    CancellationPreviewRequest,
     DeadlineChangeRead,
     DeadlinePreview,
     DeadlinePreviewRequest,
@@ -117,6 +120,32 @@ def create_app(db_path: Path | None = None, provider_factory=OllamaProvider) -> 
     )
     def undo_deadline(suggestion_id: str, session: WriteDB):
         return deadlines.undo(session, suggestion_id)
+
+    @application.post(
+        "/api/suggestions/{suggestion_id}/cancellation-preview",
+        response_model=CancellationPreview,
+        tags=["cancellations"],
+    )
+    def cancellation_preview(
+        suggestion_id: str, body: CancellationPreviewRequest, session: WriteDB
+    ):
+        return cancellations.preview(session, suggestion_id, body)
+
+    @application.post(
+        "/api/cancellation-proposals/{proposal_id}/confirm",
+        response_model=CancellationChangeRead,
+        tags=["cancellations"],
+    )
+    def confirm_cancellation(proposal_id: str, session: WriteDB):
+        return cancellations.confirm(session, proposal_id)
+
+    @application.post(
+        "/api/cancellation-changes/{suggestion_id}/undo",
+        response_model=CancellationChangeRead,
+        tags=["cancellations"],
+    )
+    def undo_cancellation(suggestion_id: str, session: WriteDB):
+        return cancellations.undo(session, suggestion_id)
 
     @application.post(
         "/api/suggestions/{suggestion_id}/{operation}", response_model=InboxItem, tags=["inbox"]

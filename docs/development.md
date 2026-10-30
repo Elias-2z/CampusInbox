@@ -42,7 +42,7 @@ uv run --python 3.11 scripts/check.py
 
 默认路径与启动位置无关，为 `backend/data/campus-inbox.db`；可通过 `CAMPUSINBOX_DB_PATH` 指定测试数据路径。原消息和识别处理中占位记录在推理前提交。服务重启时将中断的识别恢复为待审核，允许重新识别。
 
-原有 schema v1 保持不变，本阶段通过 create_all 增量增加 DeadlineProposal / DeadlineChange 两张独立表；升级前已使用 SQLite backup API 创建本地一致性备份，并验证旧记录与原文保留。当前仍没有通用的旧字段迁移工具，后续更改已有表结构前需先实现迁移，不得删除真实数据库解决升级问题。
+原有 schema v1 保持不变，通过 create_all 增量增加 DeadlineProposal / DeadlineChange 与 CancellationProposal / CancellationChange 独立表；升级前已使用 SQLite backup API 创建本地一致性备份，并验证旧记录与原文保留。当前仍没有通用的旧字段迁移工具，后续更改已有表结构前需先实现迁移，不得删除真实数据库解决升级问题。
 
 所有时间以带时区的 UTC 传输和保存，界面显示浏览器本地时间。消息携带原发送时间及命名时区用于相对日期解析。未明确时刻不默认成 23:59；用户可以手动明确截止时间。
 
@@ -51,6 +51,8 @@ SQLite 开启外键与 WAL。写操作在读取待修改对象前获取写事务
 ## 截止时间审核与隔离测试
 
 截止时间更新使用持久化预览，确认时校验任务版本和建议修订；更新、事件与通知关联在同一事务内完成。详情返回多条来源，撤销记录为新事件。撤销后建议仍为已处理；旧确认不能再次应用，需要重做时请人工编辑任务。
+
+取消审核使用相同的任务版本和建议修订校验，确认只改变任务状态；撤销恢复原状态，来源和历史均保留。详见 cancellation-review.md。
 
 浏览器验收可以独立运行另一份 API 与 Vite：API 用 CAMPUSINBOX_DB_PATH 指定测试数据库并选择空闲端口；Vite 用 CAMPUSINBOX_API_TARGET 指向测试 API，再指定另一端口。该变量只在开发代理中使用，不注入浏览器。默认仍为 8000 / 5173。不得把测试通知写入用户的正式数据库。
 

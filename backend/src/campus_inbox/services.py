@@ -13,9 +13,16 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from campus_inbox import cancellations
 from campus_inbox.deadlines import change_read
-from campus_inbox.extraction import deadline_supported, extract_rules, merge_model
+from campus_inbox.extraction import (
+    cancellation_supported,
+    deadline_supported,
+    extract_rules,
+    merge_model,
+)
 from campus_inbox.models import (
+    CancellationChange,
     DeadlineChange,
     DeadlineProposal,
     Message,
@@ -105,6 +112,7 @@ def matching_tasks(session: Session, fields: dict) -> list[Task]:
 def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     task = session.exec(select(Task).where(Task.suggestion_id == suggestion.id)).first()
     change = session.get(DeadlineChange, suggestion.id)
+    cancellation = session.get(CancellationChange, suggestion.id)
     message = get_or_404(session, Message, suggestion.message_id)
     supported = suggestion.action == "review" and deadline_supported(message.text)
     warnings = [
@@ -125,7 +133,20 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         matched_tasks=[
             TaskRead.model_validate(t) for t in matching_tasks(session, suggestion.fields)
         ],
-        task_id=task.id if task else change.task_id if change else None,
+        task_id=(
+            task.id
+            if task
+            else change.task_id
+            if change
+            else cancellation.task_id
+            if cancellation
+            else None
+        ),
+        cancellation_supported=suggestion.action == "review"
+        and cancellation_supported(message.text),
+        cancellation_change=cancellations.change_read(session, cancellation)
+        if cancellation
+        else None,
         updated_at=suggestion.updated_at,
         deadline_supported=supported,
         deadline_change=change_read(session, change) if change else None,
@@ -367,6 +388,12 @@ def detail(session: Session, task: Task) -> TaskDetail:
         source=sources[0],
         sources=sources,
         deadline_changes=[change_read(session, change) for change in changes],
+        cancellation_changes=[
+            cancellations.change_read(session, change)
+            for change in session.exec(
+                select(CancellationChange).where(CancellationChange.task_id == task.id)
+            )
+        ],
         events=[EventRead.model_validate(e) for e in events],
         evidence=evidence,
         method=suggestion.method,

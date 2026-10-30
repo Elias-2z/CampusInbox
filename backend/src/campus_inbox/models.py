@@ -96,3 +96,22 @@ class DeadlineChange(SQLModel, table=True):
     event_id: str = Field(foreign_key="taskevent.id", unique=True)
     applied_version: int
     undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)
+
+
+class CancellationProposal(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    task_version: int
+    before_status: str
+    suggestion_updated_at: datetime
+    created_at: datetime = Field(default_factory=now)
+
+
+class CancellationChange(SQLModel, table=True):
+    suggestion_id: str = Field(foreign_key="suggestion.id", primary_key=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    proposal_id: str = Field(foreign_key="cancellationproposal.id", unique=True)
+    event_id: str = Field(foreign_key="taskevent.id", unique=True)
+    applied_version: int
+    undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)
