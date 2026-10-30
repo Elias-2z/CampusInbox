@@ -12,6 +12,7 @@ import {
 } from '@/api'
 import { useCampus } from '@/stores/campus'
 import TaskForm from '@/components/TaskForm.vue'
+import DeadlineReview from '@/components/DeadlineReview.vue'
 const store = useCampus()
 const route = useRoute()
 const router = useRouter()
@@ -21,7 +22,7 @@ const drafts = reactive<Record<string, TaskInput>>({})
 const duplicateAllowed = ref(false)
 const tabs = [
   { id: 'pending', title: '待处理' },
-  { id: 'accepted', title: '已创建' },
+  { id: 'accepted', title: '已处理' },
   { id: 'ignored', title: '已忽略' },
   { id: 'all', title: '全部' },
 ]
@@ -154,7 +155,11 @@ const methodName = (method: string) =>
           item.status === 'processing'
             ? '正在识别'
             : item.status === 'accepted'
-              ? '已创建任务'
+              ? item.deadline_change
+                ? item.deadline_change.reverted
+                  ? '更新已撤销'
+                  : '已更新原任务'
+                : '已创建任务'
               : item.status === 'ignored'
                 ? '已忽略'
                 : item.action === 'review'
@@ -206,8 +211,32 @@ const methodName = (method: string) =>
           </button></template
         >
         <template v-else-if="selected.status === 'accepted'"
-          ><h3>✅ 已创建正式任务</h3>
-          <p class="ci-notice ci-before">这条通知已经处理，重复导入不会再次创建任务。</p>
+          ><h3>
+            {{
+              selected.deadline_change
+                ? selected.deadline_change.reverted
+                  ? '↶ 本次更新已撤销'
+                  : '✅ 已更新原任务'
+                : '✅ 已创建正式任务'
+            }}
+          </h3>
+          <p class="ci-notice ci-before">
+            {{
+              selected.deadline_change
+                ? selected.deadline_change.reverted
+                  ? '原截止时间已恢复，通知与修改历史仍然保留。'
+                  : '这条变更已应用到原任务，没有创建重复任务。'
+                : '这条通知已经处理，重复导入不会再次创建任务。'
+            }}
+          </p>
+          <button
+            v-if="selected.deadline_change?.can_undo"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.undoDeadline(selected.deadline_change)"
+          >
+            撤销本次截止时间更新 ↶
+          </button>
           <RouterLink
             v-if="selected.task_id"
             class="ci-btn ci-primary cursor-interaction"
@@ -249,7 +278,8 @@ const methodName = (method: string) =>
               >{{ task.title }} · {{ displayDate(task.due_at) }} ↗</RouterLink
             >
           </div>
-          <form v-if="selected.action === 'create'" @submit.prevent="accept">
+          <DeadlineReview v-if="selected.deadline_supported" :key="selected.id" :item="selected" />
+          <form v-else-if="selected.action === 'create'" @submit.prevent="accept">
             <TaskForm v-model="draft" :busy="store.busy" :evidence="selected.evidence" /><label
               v-if="selected.matched_tasks.length"
               class="ci-checklabel"
@@ -275,7 +305,7 @@ const methodName = (method: string) =>
               </button>
             </div>
           </form>
-          <div v-else class="ci-actions">
+          <div v-else-if="!selected.deadline_supported" class="ci-actions">
             <button
               class="ci-btn cursor-interaction"
               :disabled="store.busy"
@@ -286,13 +316,23 @@ const methodName = (method: string) =>
               手动新建任务
             </button>
           </div>
-          <button
-            class="ci-btn ci-text ci-retry cursor-interaction"
-            :disabled="store.busy"
-            @click="retry"
-          >
-            重新识别 ↻
-          </button>
+          <div class="ci-actions ci-review-footer">
+            <button
+              v-if="selected.deadline_supported"
+              class="ci-btn ci-text cursor-interaction"
+              :disabled="store.busy"
+              @click="store.ignore(selected)"
+            >
+              忽略这条建议
+            </button>
+            <button
+              class="ci-btn ci-text ci-retry cursor-interaction"
+              :disabled="store.busy"
+              @click="retry"
+            >
+              重新识别 ↻
+            </button>
+          </div>
         </template>
       </section>
     </div>

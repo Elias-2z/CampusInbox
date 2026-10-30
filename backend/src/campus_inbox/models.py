@@ -75,3 +75,24 @@ class ModelSettings(SQLModel, table=True):
     base_url: str = "http://127.0.0.1:11434"
     model: str = ""
     timeout_seconds: int = 45
+
+
+class DeadlineProposal(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    task_version: int
+    before_due_at: datetime | None = None
+    proposed_due_at: datetime
+    suggestion_updated_at: datetime
+    evidence: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=now)
+
+
+class DeadlineChange(SQLModel, table=True):
+    suggestion_id: str = Field(foreign_key="suggestion.id", primary_key=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    proposal_id: str = Field(foreign_key="deadlineproposal.id", unique=True)
+    event_id: str = Field(foreign_key="taskevent.id", unique=True)
+    applied_version: int
+    undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)

@@ -120,6 +120,7 @@ class MessageRead(ReadModel):
 
 class EventRead(ReadModel):
     id: str
+    message_id: str
     operation: str
     before: dict
     after: dict
@@ -127,9 +128,44 @@ class EventRead(ReadModel):
     created_at: Timestamp
 
 
+class DeadlinePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str
+    due_at: datetime | None = None
+
+    @field_validator("due_at")
+    @classmethod
+    def aware_due(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("截止时间必须包含时区")
+        return value
+
+
+class DeadlinePreview(BaseModel):
+    id: str
+    suggestion_id: str
+    task: TaskRead
+    proposed_due_at: Timestamp
+    warnings: list[str]
+    evidence: dict
+    created_at: Timestamp
+
+
+class DeadlineChangeRead(BaseModel):
+    suggestion_id: str
+    task: TaskRead
+    event_id: str
+    undo_event_id: str | None
+    applied_version: int
+    can_undo: bool
+    reverted: bool
+
+
 class TaskDetail(BaseModel):
     task: TaskRead
     source: MessageRead
+    sources: list[MessageRead]
+    deadline_changes: list[DeadlineChangeRead]
     events: list[EventRead]
     evidence: dict
     method: str
@@ -146,6 +182,9 @@ class InboxItem(BaseModel):
     message: MessageRead
     matched_tasks: list[TaskRead]
     task_id: str | None = None
+    updated_at: Timestamp
+    deadline_supported: bool
+    deadline_change: DeadlineChangeRead | None = None
 
 
 class LocalModelConfig(BaseModel):

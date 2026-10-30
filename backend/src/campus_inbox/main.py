@@ -10,12 +10,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import services
+from campus_inbox import deadlines, services
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
 from campus_inbox.models import ModelSettings, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
+    DeadlineChangeRead,
+    DeadlinePreview,
+    DeadlinePreviewRequest,
     ImportMessage,
     InboxItem,
     LocalModelConfig,
@@ -90,6 +93,30 @@ def create_app(db_path: Path | None = None, provider_factory=OllamaProvider) -> 
         return services.accept(
             session, services.get_or_404(session, Suggestion, suggestion_id), body
         )
+
+    @application.post(
+        "/api/suggestions/{suggestion_id}/deadline-preview",
+        response_model=DeadlinePreview,
+        tags=["deadline changes"],
+    )
+    def deadline_preview(suggestion_id: str, body: DeadlinePreviewRequest, session: WriteDB):
+        return deadlines.preview(session, suggestion_id, body)
+
+    @application.post(
+        "/api/deadline-proposals/{proposal_id}/confirm",
+        response_model=DeadlineChangeRead,
+        tags=["deadline changes"],
+    )
+    def confirm_deadline(proposal_id: str, session: WriteDB):
+        return deadlines.confirm(session, proposal_id)
+
+    @application.post(
+        "/api/deadline-changes/{suggestion_id}/undo",
+        response_model=DeadlineChangeRead,
+        tags=["deadline changes"],
+    )
+    def undo_deadline(suggestion_id: str, session: WriteDB):
+        return deadlines.undo(session, suggestion_id)
 
     @application.post(
         "/api/suggestions/{suggestion_id}/{operation}", response_model=InboxItem, tags=["inbox"]

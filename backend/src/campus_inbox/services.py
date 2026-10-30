@@ -13,8 +13,18 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from campus_inbox.extraction import extract_rules, merge_model
-from campus_inbox.models import Message, ModelSettings, Suggestion, Task, TaskEvent, now
+from campus_inbox.deadlines import change_read
+from campus_inbox.extraction import deadline_supported, extract_rules, merge_model
+from campus_inbox.models import (
+    DeadlineChange,
+    DeadlineProposal,
+    Message,
+    ModelSettings,
+    Suggestion,
+    Task,
+    TaskEvent,
+    now,
+)
 from campus_inbox.providers import ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
@@ -56,23 +66,53 @@ def matching_tasks(session: Session, fields: dict) -> list[Task]:
     title = normalized(fields.get("title", ""))
     if len(title) < 2:
         return []
-    result = []
+    aliases = {"数据库": "数据库原理", "英语": "大学英语", "高数": "高等数学"}
+
+    def course_key(value: str) -> str:
+        return aliases.get(value, value)
+
+    def experiment(value: str) -> int | None:
+        from campus_inbox.extraction import number
+
+        match = re.search(r"实验([一二三四五六七八九十两0-9]+)", value)
+        return number(match[1]) if match else None
+
+    ranked = []
     for task in session.exec(select(Task).where(Task.status.notin_(["archived", "cancelled"]))):
-        if fields.get("course") and task.course and fields["course"] != task.course:
+        course = fields.get("course", "")
+        if course and task.course and course_key(course) != course_key(task.course):
             continue
         existing = normalized(task.title)
+        incoming_number, existing_number = experiment(title), experiment(existing)
         if (
-            title == existing
-            or SequenceMatcher(None, title, existing).ratio() >= 0.72
-            or min(len(title), len(existing)) >= 3
-            and (title in existing or existing in title)
+            incoming_number is not None
+            and existing_number is not None
+            and incoming_number != existing_number
         ):
-            result.append(task)
-    return result[:5]
+            continue
+        ratio = SequenceMatcher(None, title, existing).ratio()
+        score = 100 if title == existing else 80 * ratio if ratio >= 0.72 else 0
+        if min(len(title), len(existing)) >= 3 and (title in existing or existing in title):
+            score = max(score, 70)
+        if experiment(title) is not None and experiment(title) == experiment(existing):
+            score = max(score, 55)
+        if score:
+            ranked.append((score, task))
+    ranked.sort(key=lambda item: (-item[0], item[1].id))
+    return [task for _, task in ranked[:5]]
 
 
 def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     task = session.exec(select(Task).where(Task.suggestion_id == suggestion.id)).first()
+    change = session.get(DeadlineChange, suggestion.id)
+    message = get_or_404(session, Message, suggestion.message_id)
+    supported = suggestion.action == "review" and deadline_supported(message.text)
+    warnings = [
+        "检测到截止时间变更，请核对目标任务和新旧时间后确认。"
+        if supported and warning == "检测到变更或取消信息：本版仅提示核对，不自动修改或创建任务。"
+        else warning
+        for warning in suggestion.warnings
+    ]
     return InboxItem(
         id=suggestion.id,
         status=suggestion.status,
@@ -80,12 +120,15 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         method=suggestion.method,
         fields=suggestion.fields,
         evidence=suggestion.evidence,
-        warnings=suggestion.warnings,
-        message=MessageRead.model_validate(get_or_404(session, Message, suggestion.message_id)),
+        warnings=warnings,
+        message=MessageRead.model_validate(message),
         matched_tasks=[
             TaskRead.model_validate(t) for t in matching_tasks(session, suggestion.fields)
         ],
-        task_id=task.id if task else None,
+        task_id=task.id if task else change.task_id if change else None,
+        updated_at=suggestion.updated_at,
+        deadline_supported=supported,
+        deadline_change=change_read(session, change) if change else None,
     )
 
 
@@ -293,7 +336,11 @@ def detail(session: Session, task: Task) -> TaskDetail:
             )
         )
     )
+    changes = list(session.exec(select(DeadlineChange).where(DeadlineChange.task_id == task.id)))
+    by_event = {change.event_id: change for change in changes}
+    by_undo = {change.undo_event_id: change for change in changes if change.undo_event_id}
     evidence = dict(suggestion.evidence)
+    prior_due = {}
     for event in events:
         if event.operation == "update":
             for key in event.after:
@@ -303,9 +350,23 @@ def detail(session: Session, task: Task) -> TaskDetail:
                         "quote": "用户编辑",
                         "original": evidence.get(key),
                     }
+        elif event.operation == "deadline_update" and event.id in by_event:
+            prior_due[event.id] = evidence.get("due_at")
+            proposal = get_or_404(session, DeadlineProposal, by_event[event.id].proposal_id)
+            evidence["due_at"] = {**proposal.evidence, "confirmed": True}
+        elif event.operation == "deadline_undo" and event.id in by_undo:
+            previous = prior_due.get(by_undo[event.id].event_id)
+            if previous is None:
+                evidence.pop("due_at", None)
+            else:
+                evidence["due_at"] = previous
+    source_ids = list(dict.fromkeys([task.message_id, *[event.message_id for event in events]]))
+    sources = [MessageRead.model_validate(get_or_404(session, Message, mid)) for mid in source_ids]
     return TaskDetail(
         task=TaskRead.model_validate(task),
-        source=MessageRead.model_validate(get_or_404(session, Message, task.message_id)),
+        source=sources[0],
+        sources=sources,
+        deadline_changes=[change_read(session, change) for change in changes],
         events=[EventRead.model_validate(e) for e in events],
         evidence=evidence,
         method=suggestion.method,

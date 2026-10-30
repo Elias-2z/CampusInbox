@@ -1,6 +1,14 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { post, request, taskInput, type InboxItem, type Task, type TaskStatus } from '@/api'
+import {
+  post,
+  request,
+  taskInput,
+  type DeadlineChange,
+  type InboxItem,
+  type Task,
+  type TaskStatus,
+} from '@/api'
 
 export const useCampus = defineStore('campus', () => {
   const tasks = ref<Task[]>([])
@@ -132,6 +140,15 @@ export const useCampus = defineStore('campus', () => {
         }),
       )
   }
+  function registerDeadlineUndo(change: DeadlineChange) {
+    if (change.can_undo) setUndo(() => post(`/deadline-changes/${change.suggestion_id}/undo`))
+  }
+  async function undoDeadline(change: DeadlineChange) {
+    await mutate(
+      () => post<DeadlineChange>(`/deadline-changes/${change.suggestion_id}/undo`),
+      '本次截止时间更新已撤销，通知和历史记录仍保留。',
+    )
+  }
   async function ignore(item: InboxItem) {
     const updated = await mutate(
       () => post<InboxItem>(`/suggestions/${item.id}/ignore`),
@@ -163,6 +180,8 @@ export const useCampus = defineStore('campus', () => {
     changeStatus,
     archive,
     ignore,
+    registerDeadlineUndo,
+    undoDeadline,
     errorMessage,
   }
 })

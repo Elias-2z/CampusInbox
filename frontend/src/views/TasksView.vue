@@ -179,12 +179,33 @@ function eventValue(key: string, value: unknown) {
             恢复为待办
           </button>
         </div>
-        <details class="ci-detailsection" open>
-          <summary class="cursor-interaction">📎 原始来源</summary>
-          <small class="ci-muted"
-            >{{ info.source.source }} · {{ displayDate(info.source.sent_at, true) }}</small
+        <section
+          v-for="change in info.deadline_changes"
+          :key="change.suggestion_id"
+          class="ci-deadline-history"
+        >
+          <b>{{ change.reverted ? '↶ 截止时间更新已撤销' : '🗓️ 已确认的截止时间更新' }}</b>
+          <button
+            v-if="change.can_undo"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.undoDeadline(change)"
           >
-          <p class="ci-proof">{{ info.source.text }}</p>
+            撤销本次截止时间更新 ↶
+          </button>
+          <p v-else-if="!change.reverted" class="ci-notice">
+            更新后已有其他编辑，请核对下方历史后手动调整。
+          </p>
+        </section>
+        <details class="ci-detailsection" open>
+          <summary class="cursor-interaction">📎 通知来源 · {{ info.sources.length }} 条</summary>
+          <article v-for="(source, index) in info.sources" :key="source.id" class="ci-linkedsource">
+            <small class="ci-muted"
+              >{{ index === 0 ? '创建来源' : '后续通知' }} · {{ source.source }} ·
+              {{ displayDate(source.sent_at, true) }}</small
+            >
+            <p class="ci-proof">{{ source.text }}</p>
+          </article>
         </details>
         <details class="ci-detailsection">
           <summary class="cursor-interaction">🔍 字段依据</summary>
@@ -205,8 +226,20 @@ function eventValue(key: string, value: unknown) {
         <details class="ci-detailsection">
           <summary class="cursor-interaction">🕰️ 修改历史 · {{ info.events.length }} 条</summary>
           <article v-for="event in [...info.events].reverse()" :key="event.id" class="ci-event">
-            <b>{{ event.operation === 'create' ? '用户确认创建' : '用户更新任务' }}</b
-            ><small>{{ displayDate(event.created_at, true) }}</small
+            <b>{{
+              event.operation === 'create'
+                ? '用户确认创建'
+                : event.operation === 'deadline_update'
+                  ? '用户确认截止时间变更'
+                  : event.operation === 'deadline_undo'
+                    ? '撤销截止时间变更'
+                    : '用户更新任务'
+            }}</b
+            ><small
+              >{{ displayDate(event.created_at, true) }} ·
+              {{
+                info.sources.find((source) => source.id === event.message_id)?.source || '用户操作'
+              }}</small
             ><template v-if="event.operation !== 'create'"
               ><p v-for="key in changes(event)" :key="key">
                 {{ fieldNames[key] }}：{{ eventValue(key, event.before[key]) }} →

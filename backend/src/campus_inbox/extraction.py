@@ -36,6 +36,54 @@ CHANGE_WORDS = re.compile(
 )
 
 
+DEADLINE_CHANGE = re.compile(
+    r"延期|延迟|推迟|顺延|延后|延至|提前(?:到|至|为|[一二三四五六七八九十0-9])"
+    r"|(?:截止(?:时间|日期|期限)?|(?:提交|交付|上交)(?:时间|日期|期限))"
+    r"[^。，；\n]{0,40}(?:调整|改[为到成]|变更)"
+)
+CANCELLATION = re.compile(
+    r"取消|作废|不用交|无需提交|不(?:用|需要|必)(?:再)?(?:提交|上交|交)|不要(?:再)?(?:提交|上交)"
+    r"|(?:没有|并未|并非|未|不)(?:再)?(?:延期|延迟|推迟|提前|调整)"
+)
+
+
+def deadline_supported(text: str) -> bool:
+    unchanged = re.search(
+        r"(?:截止|提交|交付|上交)(?:时间|日期|期限)?(?:仍然|保持)?(?:不变|未变|不调整|不更改)",
+        text,
+    )
+    question = re.search(
+        r"(?:是否|能否|可否|能不能|可不可以).{0,8}(?:延期|推迟|提前)"
+        r"|(?:延期|推迟|提前)(?:吗|么|[？?])",
+        text,
+    )
+    return bool(DEADLINE_CHANGE.search(text)) and not any(
+        [
+            CANCELLATION.search(text),
+            unchanged,
+            question,
+            len(re.findall(r"(?:^|\n)\s*\d+[.、．]", text)) >= 2,
+        ]
+    )
+
+
+def infer_change_subject(text: str) -> str:
+    for clause in re.split(r"[，。；\n：:]", text):
+        change = DEADLINE_CHANGE.search(clause)
+        if not change:
+            continue
+        subject = clause[: change.start()].strip(" 《》")
+        subject = re.sub(r"^(?:关于|通知|请注意|本次)", "", subject)
+        subject = re.sub(r"(?:的)?(?:(?:截止|提交|交付|上交)(?:时间|日期|期限))?的?$", "", subject)
+        for course in COURSES:
+            if subject.startswith(course):
+                subject = subject[len(course) :].lstrip("的 ")
+                break
+        if 2 <= len(subject) <= 100:
+            return subject
+    return ""
+
+
 @dataclass
 class DateResult:
     due_at: datetime | None = None
@@ -135,6 +183,10 @@ def parse_deadline(text: str, sent_at: datetime, timezone: str) -> DateResult:
         nearby = text[end : end + 16]
         prefix = text[max(0, match.start() - 10) : match.start()]
         score = 2 if re.search(r"截止|[之以]?前|最[晚迟]", nearby + prefix) else 0
+        if re.search(
+            r"(?:延期|延迟|推迟|提前|顺延|延后|延至|调整|变更|更改|改)[到至为成]?\s*$", prefix
+        ):
+            score = 3
         if not score and re.search(r"提交|上交|完成|上传", nearby):
             score = 1
         if re.match(r"\s*(?:发布|布置|发出|收到|之后|以后|上课(?!前)|开始(?!前))", nearby):
@@ -189,13 +241,17 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
             "remarks": "",
         }
     )
-    if CHANGE_WORDS.search(text):
+    if CHANGE_WORDS.search(text) or DEADLINE_CHANGE.search(text):
         result.action = "review"
-        result.warnings.append("检测到变更或取消信息：本版仅提示核对，不自动修改或创建任务。")
+        result.warnings.append(
+            "检测到截止时间变更，请核对目标任务和新旧时间后确认。"
+            if deadline_supported(text)
+            else "检测到其他变更或取消信息：本版仅提示核对，不自动修改或创建任务。"
+        )
     elif not TASK_WORDS.search(text):
         result.action = "ignore"
         result.warnings.append("未发现明确任务线索。可忽略，或通过“新建任务”手动记录。")
-    title = infer_title(text)
+    title = (infer_change_subject(text) if deadline_supported(text) else "") or infer_title(text)
     if title:
         result.fields["title"] = title
         result.evidence["title"] = {"method": "rule", "quote": title}
@@ -233,7 +289,10 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
         result.action = "review"
         result.warnings.append("这段通知可能包含多个任务，请拆分后分别导入。")
     result.needs_llm = not (
-        title and deadline.due_at and not deadline.warnings and result.action == "create"
+        title
+        and deadline.due_at
+        and not deadline.warnings
+        and (result.action == "create" or deadline_supported(text))
     )
     return result
 

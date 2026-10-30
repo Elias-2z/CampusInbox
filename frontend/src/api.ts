@@ -45,9 +45,13 @@ export interface InboxItem {
   message: Message
   matched_tasks: Task[]
   task_id: string | null
+  updated_at: string
+  deadline_supported: boolean
+  deadline_change: DeadlineChange | null
 }
 export interface TaskEvent {
   id: string
+  message_id: string
   operation: string
   before: Record<string, unknown>
   after: Record<string, unknown>
@@ -57,9 +61,29 @@ export interface TaskEvent {
 export interface TaskDetail {
   task: Task
   source: Message
+  sources: Message[]
+  deadline_changes: DeadlineChange[]
   events: TaskEvent[]
   evidence: Record<string, Evidence>
   method: string
+}
+export interface DeadlinePreview {
+  id: string
+  suggestion_id: string
+  task: Task
+  proposed_due_at: string
+  warnings: string[]
+  evidence: Evidence
+  created_at: string
+}
+export interface DeadlineChange {
+  suggestion_id: string
+  task: Task
+  event_id: string
+  undo_event_id: string | null
+  applied_version: number
+  can_undo: boolean
+  reverted: boolean
 }
 export interface ModelConfig {
   enabled: boolean
