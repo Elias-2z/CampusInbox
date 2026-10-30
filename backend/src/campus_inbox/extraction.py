@@ -257,7 +257,19 @@ def merge_model(
         value = model.get(key)
         if not value or result.fields.get(target):
             continue
-        if value not in text:
+        generic_titles = {"通知", "课程通知", "课程安排", "公告", "提醒"}
+        course = result.fields.get("course", "")
+        generic_titles.update({course + "课程通知", course + "通知", course + "课程安排"})
+        platforms = {"学习通", "雨课堂", "QQ", "微信", "课程群", "邮箱"}
+        invalid_meaning = (
+            target == "title"
+            and value.strip("《》：: ") in generic_titles
+            or target == "location"
+            and value in platforms
+            or target == "file_requirements"
+            and value.strip("《》") == result.fields.get("title")
+        )
+        if value not in text or invalid_meaning:
             rejected = True
             continue
         result.fields[target] = value
@@ -274,7 +286,7 @@ def merge_model(
                 result.evidence["due_at"] = {"method": "llm+date", "quote": due_text}
                 changed = True
     if rejected:
-        result.warnings.append("模型部分字段缺乏原文依据，已舍弃；请手动核对。")
+        result.warnings.append("模型部分字段缺乏原文依据或语义不符，已舍弃；请手动核对。")
     if changed:
         result.method = "mixed"
     return result

@@ -19,10 +19,17 @@ def test_structured_schema_sent_and_json_validated():
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": [{"name": "local:4b"}]})
         if request.url.path == "/api/show":
-            return httpx.Response(200, json={"model_info": {"general.architecture": "qwen"}})
+            return httpx.Response(
+                200,
+                json={
+                    "model_info": {"general.architecture": "qwen3"},
+                    "capabilities": ["completion", "thinking"],
+                },
+            )
         body = json.loads(request.content)
         assert body["format"]["type"] == "object"
         assert body["stream"] is False
+        assert body["think"] is False
         assert body["messages"][0]["role"] == "system"
         return httpx.Response(200, json={"message": {"content": '{"title":"报告"}'}})
 
@@ -76,3 +83,24 @@ def test_invalid_json_and_transport_failure_are_recoverable():
         raise httpx.ReadTimeout("timeout", request=request)
 
     assert not provider(timeout).health_check()
+
+
+@pytest.mark.parametrize(
+    ("reply", "error"),
+    [
+        ({"done_reason": "length", "message": {"content": "", "thinking": "internal"}}, "长度上限"),
+        ({"done_reason": "length", "message": {"content": '{"title":null}'}}, "长度上限"),
+        ({"done_reason": "stop", "message": {"content": "", "thinking": "internal"}}, "思考内容"),
+    ],
+)
+def test_truncated_or_thinking_only_response_is_not_accepted(reply, error):
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "local:4b"}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"model_info": {"x": 1}})
+        assert "think" not in json.loads(request.content)
+        return httpx.Response(200, json=reply)
+
+    with pytest.raises(ProviderError, match=error):
+        provider(handler).generate_structured("通知", "2026-10-30", "Asia/Shanghai")

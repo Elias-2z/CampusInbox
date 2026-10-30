@@ -98,3 +98,19 @@ def test_explicit_minutes_and_periods(text, expected):
 )
 def test_clock_time_does_not_automatically_mean_deadline(text):
     assert parse_deadline(text, ANCHOR, "Asia/Shanghai").due_at is None
+
+
+def test_source_supported_header_or_platform_is_not_a_valid_task_or_place():
+    text = (
+        "软件工程课程通知：本次交付物为《校园二手交易平台需求规格说明书》，明天20:00前放到学习通。"
+    )
+    result = merge_model(
+        extract_rules(text, ANCHOR, "Asia/Shanghai"),
+        {"title": "软件工程课程通知", "location": "学习通"},
+        text,
+        ANCHOR,
+        "Asia/Shanghai",
+    )
+    assert result.fields["title"] == ""
+    assert result.fields["location"] == ""
+    assert any("语义不符" in warning for warning in result.warnings)
