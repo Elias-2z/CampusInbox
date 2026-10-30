@@ -10,9 +10,9 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import cancellations, deadlines, merging, services, splitting
+from campus_inbox import cancellations, deadlines, merging, reminders, services, splitting
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
-from campus_inbox.models import ModelSettings, SplitDraft, Suggestion, Task, now
+from campus_inbox.models import ModelSettings, ReminderSettings, SplitDraft, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
@@ -28,6 +28,10 @@ from campus_inbox.schemas import (
     MergeChangeRead,
     MergePreview,
     MergePreviewRequest,
+    ReminderAction,
+    ReminderConfig,
+    ReminderFeed,
+    ReminderRead,
     SplitAccept,
     SplitDecision,
     SplitEdit,
@@ -54,7 +58,9 @@ DB = Annotated[Session, Depends(get_session)]
 WriteDB = Annotated[Session, Depends(get_write_session)]
 
 
-def create_app(db_path: Path | None = None, provider_factory=OllamaProvider) -> FastAPI:
+def create_app(
+    db_path: Path | None = None, provider_factory=OllamaProvider, reminder_clock=now
+) -> FastAPI:
     engine = make_engine(db_path or Path(os.environ.get("CAMPUSINBOX_DB_PATH", str(DEFAULT_DB))))
 
     @asynccontextmanager
@@ -270,6 +276,34 @@ def create_app(db_path: Path | None = None, provider_factory=OllamaProvider) -> 
                 expected_version=expected_version,
             ),
         )
+
+    @application.get("/api/reminders", response_model=ReminderFeed, tags=["reminders"])
+    def reminder_feed(session: DB):
+        return reminders.feed(session, reminder_clock())
+
+    @application.get("/api/settings/reminders", response_model=ReminderConfig, tags=["reminders"])
+    def reminder_config(session: DB):
+        return reminders.config(session)
+
+    @application.put("/api/settings/reminders", response_model=ReminderConfig, tags=["reminders"])
+    def save_reminders(body: ReminderConfig, session: WriteDB):
+        settings = session.get(ReminderSettings, 1) or ReminderSettings()
+        for key, value in body.model_dump().items():
+            setattr(settings, key, value)
+        session.add(settings)
+        session.commit()
+        return body
+
+    @application.post(
+        "/api/reminders/{reminder_id}/{operation}", response_model=ReminderRead, tags=["reminders"]
+    )
+    def reminder_action(
+        reminder_id: str,
+        operation: Literal["read", "snooze", "restore"],
+        body: ReminderAction,
+        session: WriteDB,
+    ):
+        return reminders.act(session, reminder_id, operation, body, reminder_clock())
 
     @application.get("/api/settings/model", response_model=LocalModelConfig, tags=["settings"])
     def model_config(session: DB):

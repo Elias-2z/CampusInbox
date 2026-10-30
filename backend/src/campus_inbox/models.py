@@ -156,3 +156,22 @@ class MergeChange(SQLModel, table=True):
     event_id: str = Field(foreign_key="taskevent.id", unique=True)
     applied_version: int
     undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)
+
+
+class ReminderSettings(SQLModel, table=True):
+    id: int = Field(default=1, primary_key=True)
+    enabled: bool = True
+    lead_minutes: int = 1440
+    overdue_enabled: bool = True
+
+
+class ReminderState(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    due_at: datetime
+    phase: str
+    is_read: bool = False
+    read_at: datetime | None = None
+    snoozed_until: datetime | None = None
+    version: int = 0
+    updated_at: datetime = Field(default_factory=now)

@@ -6,13 +6,26 @@ import ImportModal from '@/components/ImportModal.vue'
 import TaskEditor from '@/components/TaskEditor.vue'
 const store = useCampus()
 let timer: number | undefined
+function refreshRemindersWhenVisible() {
+  if (document.visibilityState === 'visible' && !store.busy && !store.reminderBusy) {
+    store.clock = Date.now()
+    void store.refreshReminders()
+  }
+}
 onMounted(() => {
   void store.initialize()
   timer = window.setInterval(() => {
     store.clock = Date.now()
+    refreshRemindersWhenVisible()
   }, 30000)
+  document.addEventListener('visibilitychange', refreshRemindersWhenVisible)
+  window.addEventListener('focus', refreshRemindersWhenVisible)
 })
-onUnmounted(() => window.clearInterval(timer))
+onUnmounted(() => {
+  window.clearInterval(timer)
+  document.removeEventListener('visibilitychange', refreshRemindersWhenVisible)
+  window.removeEventListener('focus', refreshRemindersWhenVisible)
+})
 </script>
 <template>
   <div class="app-root">
@@ -27,6 +40,8 @@ onUnmounted(() => window.clearInterval(timer))
         ><RouterLink to="/inbox" class="ci-nav" active-class="ci-nav-active"
           >📮 收件箱 <span class="ci-navcount">{{ store.pending.length }}</span></RouterLink
         ><RouterLink to="/tasks" class="ci-nav" active-class="ci-nav-active">🗂️ 我的任务</RouterLink
+        ><RouterLink to="/reminders" class="ci-nav" active-class="ci-nav-active"
+          >🔔 提醒 <span class="ci-navcount">{{ store.unreadReminders.length }}</span></RouterLink
         ><RouterLink to="/settings" class="ci-nav" active-class="ci-nav-active">⚙️ 设置</RouterLink>
       </nav>
       <span class="ci-demo">LESS CHAOS, MORE CAMPUS</span>

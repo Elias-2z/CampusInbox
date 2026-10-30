@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { post, request, type ModelConfig, type Probe } from '@/api'
 import { useCampus } from '@/stores/campus'
+import ReminderSettings from '@/components/ReminderSettings.vue'
 const store = useCampus()
 const config = ref<ModelConfig>({
   enabled: false,
@@ -56,6 +57,7 @@ async function save() {
       <h1>按你的习惯来 ⚙️</h1>
     </div>
   </div>
+  <ReminderSettings />
   <div class="ci-settingslayout">
     <form class="ci-form" @submit.prevent="save">
       <h3>🧠 本地模型兜底</h3>
@@ -122,7 +124,7 @@ async function save() {
       </p>
       <h3>🗃️ 本地保存</h3>
       <p class="ci-notice">
-        任务、来源与历史会在刷新和重启后保留。备份、OCR、日历提醒和平台连接将在后续阶段提供。
+        任务、来源与历史会在刷新和重启后保留。站内截止提醒已可使用；备份恢复、OCR、完整日历和平台连接将在后续阶段提供。
       </p>
     </aside>
   </div>

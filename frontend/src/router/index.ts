@@ -19,6 +19,11 @@ const router = createRouter({
       component: () => import('@/views/SettingsView.vue'),
       meta: { title: '设置' },
     },
+    {
+      path: '/reminders',
+      component: () => import('@/views/RemindersView.vue'),
+      meta: { title: '截止提醒' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior(to, from) {

@@ -125,6 +125,26 @@ export interface MergeChange extends DeadlineChange {
   id: string
   split_draft_id: string | null
 }
+export interface ReminderConfig {
+  enabled: boolean
+  lead_minutes: number
+  overdue_enabled: boolean
+}
+export interface Reminder {
+  id: string
+  task: Task
+  phase: 'upcoming' | 'overdue'
+  status: 'unread' | 'read' | 'snoozed'
+  due_at: string
+  read_at: string | null
+  snoozed_until: string | null
+  version: number
+}
+export interface ReminderFeed {
+  config: ReminderConfig
+  items: Reminder[]
+  evaluated_at: string
+}
 export interface ModelConfig {
   enabled: boolean
   base_url: string

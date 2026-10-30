@@ -109,6 +109,29 @@ const total = computed(
       </div>
     </section>
     <aside class="ci-side">
+      <section class="ci-inboxtease ci-reminder-tease" aria-label="截止提醒概览">
+        <div class="ci-teaseicon" aria-hidden="true">🔔</div>
+        <h3>
+          {{
+            store.unreadReminders.length
+              ? `${store.unreadReminders.length} 条提醒，别错过`
+              : '截止提醒，替你留意'
+          }}
+        </h3>
+        <p v-if="store.reminderStale">提醒暂未刷新，请到提醒页重新检查。</p>
+        <p v-else-if="store.reminderFeed && !store.reminderFeed.config.enabled">
+          站内提醒已关闭，可到设置重新启用。
+        </p>
+        <p v-else>即将截止和逾期的任务会在这里提醒。页面打开时自动检查。</p>
+        <RouterLink
+          v-for="item in store.unreadReminders.slice(0, 3)"
+          :key="item.id"
+          class="ci-daytask"
+          :to="`/tasks/${item.task.id}`"
+          >{{ item.phase === 'overdue' ? '⏰' : '🔔' }} {{ item.task.title }} ↗</RouterLink
+        >
+        <RouterLink class="ci-btn cursor-interaction" to="/reminders">查看全部提醒 →</RouterLink>
+      </section>
       <section class="ci-inboxtease">
         <div class="ci-teaseicon" aria-hidden="true">📮</div>
         <h3>{{ store.pending.length ? '有新消息，等你拍板' : '收件箱，随时待命' }}</h3>

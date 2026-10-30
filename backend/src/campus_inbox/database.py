@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from campus_inbox.models import ModelSettings, Suggestion, now
+from campus_inbox.models import ModelSettings, ReminderSettings, Suggestion, now
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = BACKEND_ROOT / "data" / "campus-inbox.db"
@@ -36,6 +36,8 @@ def initialize(engine) -> None:
     with Session(engine) as session:
         if session.get(ModelSettings, 1) is None:
             session.add(ModelSettings())
+        if session.get(ReminderSettings, 1) is None:
+            session.add(ReminderSettings())
         # No background jobs survive a restart. Retain the message and allow retry.
         for suggestion in session.exec(select(Suggestion).where(Suggestion.status == "processing")):
             suggestion.status = "pending"

@@ -326,3 +326,33 @@ class LocalModelConfig(BaseModel):
         except ValueError as exc:
             raise ValueError("无效端口") from exc
         return value.rstrip("/")
+
+
+class ReminderConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    lead_minutes: int = Field(default=1440, ge=5, le=10080)
+    overdue_enabled: bool = True
+
+
+class ReminderRead(BaseModel):
+    id: str
+    task: TaskRead
+    phase: Literal["upcoming", "overdue"]
+    status: Literal["unread", "read", "snoozed"]
+    due_at: Timestamp
+    read_at: Timestamp | None
+    snoozed_until: Timestamp | None
+    version: int
+
+
+class ReminderFeed(BaseModel):
+    config: ReminderConfig
+    items: list[ReminderRead]
+    evaluated_at: Timestamp
+
+
+class ReminderAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=0)
+    snooze_minutes: Literal[15, 30, 60, 120] = 30

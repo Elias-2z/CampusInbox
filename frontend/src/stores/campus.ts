@@ -9,6 +9,8 @@ import {
   type InboxItem,
   type Task,
   type TaskStatus,
+  type Reminder,
+  type ReminderFeed,
 } from '@/api'
 
 export const useCampus = defineStore('campus', () => {
@@ -24,6 +26,55 @@ export const useCampus = defineStore('campus', () => {
   const editorTask = ref<Task | null>(null)
   const clock = ref(Date.now())
   const celebration = ref(false)
+  const reminderFeed = ref<ReminderFeed | null>(null)
+  const reminderLoading = ref(false)
+  const reminderBusy = ref('')
+  const reminderError = ref('')
+  const reminderStale = ref(false)
+  const unreadReminders = computed(
+    () => reminderFeed.value?.items.filter((item) => item.status === 'unread') || [],
+  )
+  let reminderRefreshVersion = 0
+  async function refreshReminders() {
+    const version = ++reminderRefreshVersion
+    reminderLoading.value = true
+    try {
+      const result = await request<ReminderFeed>('/reminders')
+      if (version !== reminderRefreshVersion) return
+      reminderFeed.value = result
+      reminderError.value = ''
+      reminderStale.value = false
+    } catch (e) {
+      if (version === reminderRefreshVersion) {
+        reminderError.value = errorMessage(e)
+        reminderStale.value = true
+      }
+    } finally {
+      if (version === reminderRefreshVersion) reminderLoading.value = false
+    }
+  }
+  async function actOnReminder(
+    item: Reminder,
+    operation: 'read' | 'snooze' | 'restore',
+    minutes = 30,
+  ) {
+    if (reminderBusy.value) return
+    reminderBusy.value = item.id
+    reminderError.value = ''
+    try {
+      await post<Reminder>(`/reminders/${item.id}/${operation}`, {
+        expected_version: item.version,
+        snooze_minutes: minutes,
+      })
+      await refreshReminders()
+    } catch (e) {
+      const message = errorMessage(e)
+      await refreshReminders()
+      reminderError.value = message
+    } finally {
+      reminderBusy.value = ''
+    }
+  }
   const pending = computed(() =>
     inbox.value.filter((i) => ['pending', 'processing'].includes(i.status)),
   )
@@ -44,6 +95,7 @@ export const useCampus = defineStore('campus', () => {
     tasks.value = nextTasks
     inbox.value = nextInbox
     ready.value = true
+    await refreshReminders()
   }
   async function initialize() {
     loading.value = true
@@ -73,6 +125,7 @@ export const useCampus = defineStore('campus', () => {
         await refresh()
       } catch {
         error.value = '操作已保存，但列表刷新失败，请点击刷新。'
+        await refreshReminders()
       }
       return result
     } catch (e) {
@@ -178,6 +231,14 @@ export const useCampus = defineStore('campus', () => {
   return {
     tasks,
     inbox,
+    reminderFeed,
+    reminderLoading,
+    reminderBusy,
+    reminderError,
+    reminderStale,
+    unreadReminders,
+    refreshReminders,
+    actOnReminder,
     pending,
     active,
     ready,
