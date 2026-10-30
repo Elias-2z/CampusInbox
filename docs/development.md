@@ -1,37 +1,24 @@
-# 开发环境
+# 开发环境与运行
 
-## 工具与边界
+## 基础工具
 
-- Python 3.11，uv 管理后端，锁文件为 `backend/uv.lock`。
-- Node.js 24 LTS（`.nvmrc`），npm 管理前端，锁文件为 `frontend/package-lock.json`。
-- PyCharm 打开仓库根目录，解释器选择 `backend/.venv/bin/python`。
-- Windows 解释器路径为 `backend/.venv/Scripts/python.exe`。
-- PyCharm 的 `Dev (frontend + backend)` 运行配置可同时启动两端；`Backend` 可单独启动后端。Windows 请按上面路径调整解释器。
-- Git 在仓库根目录初始化，分支为 `main`。依赖缓存、IDE 私有配置、数据库、密钥和个人消息不提交。
-- 本次仅搭建开发骨架；任务识别、存储、模型调用、平台同步及六大业务页面尚未实现。
+Python 3.11 + uv，Node.js 24 LTS + npm，SQLite。前后端解耦，开发时 Vite 将 `/api` 代理到本机 FastAPI。
 
-## 第一次安装
+PyCharm 打开仓库根目录，解释器选择 `backend/.venv/bin/python`；Windows 为 `backend/.venv/Scripts/python.exe`。共享运行配置 Dev 同时启动两端，Backend 只启动 API。macOS 使用 Homebrew node@24 时，辅助脚本自动优先使用它，不替换全局 Node。
 
-先安装 Git、uv 和 Node.js 24 LTS，在仓库根目录执行：
+## 安装、运行和检查
+
+在仓库根目录执行：
 
 ```bash
 uv python install 3.11
 uv run --python 3.11 scripts/setup.py
-```
-
-脚本执行 `uv sync --locked` 与 `npm ci`，不会升级锁文件。可选依赖 fsevents 的安装脚本已显式禁用；本次已验证 Vite 启动正常。
-macOS 如果使用 Homebrew 的 `node@24`，脚本会优先使用其可执行文件，无需覆盖系统现有 Node。
-
-## 启动
-
-```bash
 uv run --python 3.11 scripts/dev.py
 ```
 
-前端：`http://127.0.0.1:5173`；后端：`http://127.0.0.1:8000`；接口文档：`http://127.0.0.1:8000/docs`。
-前端 `/api` 请求通过 Vite 代理到后端。两个服务只监听本机。Ctrl+C 停止启动的服务。
+前端 `http://127.0.0.1:5173`，API `http://127.0.0.1:8000`，文档 `/docs`。开发脚本会在服务异常退出时关闭另一端，Ctrl+C 同时清理两端进程。
 
-也可以在两个终端分别运行：
+分开启动：
 
 ```bash
 cd backend
@@ -43,40 +30,43 @@ cd frontend
 npm run dev
 ```
 
-## 检查
+完整检查（仓库根目录）：
 
 ```bash
 uv run --python 3.11 scripts/check.py
 ```
 
-包括后端 Ruff、格式检查、pytest，以及前端 lint、格式检查、TypeScript 检查和生产构建。
-GitHub Actions 执行相同的主要检查；只有推送至 GitHub 后才会在远端运行。
+安装脚本使用锁文件，不升级依赖。新增依赖在 backend 使用 `uv add` / `uv add --dev`；在 frontend 使用 `npm install` / `npm install -D`，提交清单与锁文件。可选 fsevents 安装脚本显式禁用，已验证 Vite 可正常运行。
 
-添加依赖请在对应目录使用 `uv add 包名` / `uv add --dev 包名` 或 `npm install 包名` / `npm install -D 包名`，并提交清单与锁文件。
+## 数据库
 
-## Ollama
+默认路径与启动位置无关，为 `backend/data/campus-inbox.db`；可通过 `CAMPUSINBOX_DB_PATH` 指定测试数据路径。原消息和识别处理中占位记录在推理前提交。服务重启时将中断的识别恢复为待审核，允许重新识别。
 
-本机已安装 Ollama CLI；尚未启动常驻服务、下载模型或设置开机自启。Ollama 是独立服务，不在 Python `.venv` 中运行，模型权重不放进 Git。
-当前骨架不依赖 Ollama 即可启动；首次做识别功能时再验证具体的 Qwen 4B 型号、下载模型并配置服务。
-尚未实现模型配置读取或连接状态检测，不要将 API 健康检查视为模型健康检查。
+当前 schema v1 由 SQLModel create_all 初始化，不提供旧 schema 自动迁移。已有真实数据时不得删除数据库解决升级问题，后续更改 schema 前应先实现迁移和备份。
 
-## GitHub
+所有时间以带时区的 UTC 传输和保存，界面显示浏览器本地时间。消息携带原发送时间及命名时区用于相对日期解析。未明确时刻不默认成 23:59；用户可以手动明确截止时间。
 
-当前仅配置本地仓库和 CI 文件，不创建远程仓库、不推送。
-本地提交身份使用连接账号的 GitHub noreply 邮箱，只影响此仓库。
-GitHub CLI 与 Codex GitHub 连接的授权独立；本机 CLI 尚未登录，按当前要求无需登录。
-后续需要上传时执行 `gh auth login`，再关联或创建经确认的远程仓库。
+SQLite 开启外键与 WAL。写操作在读取待修改对象前获取写事务；模型调用前释放写事务。任务修改用 expected_version 防止并发覆盖。接受建议的状态修改、任务和创建事件在同一事务中完成。
 
-开源许可证尚未选择，因此目前不声明已完成开源发布。正式公开前需确定 LICENSE。
-禁止提交 `.env`、密钥、Cookie、数据库及真实消息；`.gitignore` 不能替代提交前检查。
+## 模型
+
+业务通过 LLMProvider 接口调用 Ollama，使用 JSON Schema 结构化输出。模型只填补有原文依据的缺失字段；不覆盖规则已确定值。时间由日期模块计算，不接收模型虚构的日期。
+
+本地服务仅接受 localhost、127.0.0.1 或 ::1，不跟随重定向、不继承 HTTP 代理。排除云模型并用模型元数据确认本地权重。建议 Ollama 服务使用 OLLAMA_NO_CLOUD=1 禁用云端功能。当前没有真实 4B / 8B 模型效果指标，测试中的模拟响应不能替代模型评测。
+
+官方接口参考：[Ollama API](https://docs.ollama.com/api)、[Ollama 云功能设置](https://docs.ollama.com/faq#how-do-i-disable-ollama-cloud-features)、[SQLModel Session](https://sqlmodel.tiangolo.com/tutorial/fastapi/session-with-dependency/)。
 
 ## 常见问题
 
-- PyCharm 报导入错误：确认解释器指向后端 `.venv`，先执行 setup；必要时将 `backend/src` 标记为 Sources Root。
-- 端口占用：先关闭原有服务；前端启用了 strictPort，避免悄悄切换端口。
-- Node 版本不匹配：切换到 Node 24 LTS 后重新运行 setup。
-- 不需要手动激活 `.venv`：`uv run` 会使用项目环境。
+- 导入后发现字段不完整：原文仍在收件箱，手动填写后确认即可；也可配置模型后重新识别。
+- 误把通知发送时间设为今天：相对日期依此解释。保留原通知，可忽略旧建议，再修改发送时间导入；同一天同内容会去重，必要时在审核表单手动修正时间。
+- 提示任务版本变化：刷新后核对新内容再编辑；旧操作不会静默覆盖新值。
+- 模型不可连接：检查 Ollama 是否启动，设置页“测试连接 / 读取模型”；规则审核仍可正常使用。
+- PyCharm 导入报错：先 setup，再检查解释器，必要时标记 backend/src 为 Sources Root。
+- 页面连接不到服务：查看 Backend 是否启动、8000 是否占用；Vite 5173 启用了 strictPort。
 
-## 验证范围
+## GitHub 与平台验证
 
-本次在 macOS Apple Silicon 上验证。Windows / Linux 尚未在独立机器上实测；CI 工作流已配置，尚未在 GitHub 远端执行。
+本地分支和提交使用 GitHub noreply 身份，不改全局 Git 身份。已配置 CI 与 Dependabot，但未建立远程仓库，远端 CI 尚未运行。GitHub CLI 与 Codex 连接独立授权，本机 CLI 尚未登录，上传时再处理。
+
+已在 macOS Apple Silicon 验证；Windows / Linux 独立机器安装、正式开源许可证与安装包仍待后续验收。

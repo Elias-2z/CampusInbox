@@ -1,0 +1,77 @@
+"""Persistence only. All timestamps use timezone-aware UTC."""
+
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from sqlalchemy import JSON, Column
+from sqlmodel import Field, SQLModel
+
+
+def uid() -> str:
+    return str(uuid4())
+
+
+def now() -> datetime:
+    return datetime.now(UTC)
+
+
+class Message(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    text: str
+    source: str = "手动粘贴"
+    sent_at: datetime
+    timezone: str = "Asia/Shanghai"
+    received_at: datetime = Field(default_factory=now)
+    dedupe_key: str = Field(unique=True, index=True)
+
+
+class Suggestion(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    message_id: str = Field(foreign_key="message.id", unique=True, index=True)
+    status: str = "processing"
+    action: str = "create"
+    method: str = "rule"
+    fields: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    evidence: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    warnings: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class Task(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", unique=True, index=True)
+    message_id: str = Field(foreign_key="message.id", index=True)
+    title: str
+    course: str = ""
+    kind: str = "other"
+    description: str = ""
+    due_at: datetime | None = None
+    status: str = Field(default="todo", index=True)
+    submission_platform: str = ""
+    submission_method: str = ""
+    file_requirements: str = ""
+    location: str = ""
+    remarks: str = ""
+    version: int = 1
+    created_at: datetime = Field(default_factory=now)
+    updated_at: datetime = Field(default_factory=now)
+
+
+class TaskEvent(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    message_id: str = Field(foreign_key="message.id")
+    operation: str
+    before: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    after: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    actor: str = "user"
+    created_at: datetime = Field(default_factory=now)
+
+
+class ModelSettings(SQLModel, table=True):
+    id: int = Field(default=1, primary_key=True)
+    enabled: bool = False
+    base_url: str = "http://127.0.0.1:11434"
+    model: str = ""
+    timeout_seconds: int = 45

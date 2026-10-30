@@ -1,0 +1,1208 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: light-dark(#faf9f5, #1c1a25);
+}
+body {
+  margin: 0;
+}
+button,
+a,
+input[type='checkbox'],
+summary {
+  cursor: pointer;
+}
+a {
+  color: inherit;
+}
+
+.app-root {
+  --ci-paper: light-dark(#faf9f5, #1c1a25);
+  --ci-surface: light-dark(#fff, #272332);
+  --ci-ink: light-dark(#272137, #f4f0ff);
+  --ci-muted: light-dark(#716b7d, #b7afc8);
+  --ci-line: light-dark(#e9e5ed, #443d51);
+  --ci-accent: #7045e8;
+  --ci-lime: #d8f36a;
+  --ci-soft: light-dark(#eee8ff, #36294f);
+  --ci-yellow: light-dark(#fff0b8, #473b1e);
+  --ci-pink: light-dark(#ffe4e7, #492b38);
+  --ci-radius: 22px;
+  color: var(--ci-ink);
+  background: var(--ci-paper);
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  border-radius: 24px;
+  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  font-size: 14px;
+  line-height: 1.6;
+  min-width: 0;
+}
+.app-root * {
+  box-sizing: border-box;
+}
+.app-root [hidden] {
+  display: none !important;
+}
+.app-root button,
+.app-root input,
+.app-root select,
+.app-root textarea {
+  font: inherit;
+}
+.app-root button {
+  color: inherit;
+}
+.app-root button:focus-visible,
+.app-root input:focus-visible,
+.app-root textarea:focus-visible,
+.app-root select:focus-visible {
+  outline: 3px solid var(--ci-accent);
+  outline-offset: 3px;
+}
+.app-root h1,
+.app-root h2,
+.app-root h3,
+.app-root p {
+  margin: 0;
+}
+.app-root h1 {
+  font-size: 34px;
+  line-height: 1.25;
+  font-weight: 800;
+  letter-spacing: -1.2px;
+}
+.app-root h2 {
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: -0.4px;
+}
+.app-root h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+.app-root small {
+  font-size: 12px;
+}
+.app-root .ci-muted {
+  color: var(--ci-muted);
+}
+.app-root .ci-top {
+  padding: 22px 100px 18px 28px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  border-bottom: 1px solid var(--ci-line);
+  flex-wrap: wrap;
+}
+.app-root .ci-brand {
+  font-size: 21px;
+  font-weight: 850;
+  letter-spacing: -0.8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+}
+.app-root .ci-mark {
+  display: grid;
+  place-items: center;
+  background: var(--ci-lime);
+  color: #272137;
+  width: 34px;
+  height: 34px;
+  border: 2px solid #272137;
+  border-radius: 11px;
+  transform: rotate(-7deg);
+  font-size: 20px;
+}
+.app-root .ci-top nav {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.app-root .ci-nav {
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  padding: 8px 13px;
+  white-space: nowrap;
+  color: var(--ci-muted);
+  font-weight: 600;
+}
+.app-root .ci-nav[aria-current='page'] {
+  background: var(--ci-accent);
+  color: #fff;
+}
+.app-root .ci-demo {
+  font-size: 11px;
+  color: var(--ci-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.app-root .ci-main {
+  padding: 26px 28px 22px;
+}
+.app-root .ci-pagehead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+.app-root .ci-eyebrow {
+  font-size: 11px;
+  letter-spacing: 1.8px;
+  font-weight: 750;
+  color: var(--ci-muted);
+  margin-bottom: 8px;
+}
+.app-root .ci-btn {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  border: 1px solid var(--ci-line);
+  border-radius: 12px;
+  padding: 9px 15px;
+  background: var(--ci-surface);
+  font-weight: 650;
+  text-decoration: none;
+  transition:
+    transform 0.15s,
+    background 0.15s;
+}
+.app-root .ci-btn:hover {
+  transform: translateY(-2px);
+}
+.app-root .ci-btn.ci-primary {
+  background: var(--ci-accent);
+  color: #fff;
+  border-color: transparent;
+}
+.app-root .ci-btn.ci-lime {
+  background: var(--ci-lime);
+  color: #292137;
+  border-color: transparent;
+}
+.app-root .ci-btn.ci-text {
+  border: 0;
+  background: transparent;
+  padding: 7px 2px;
+  min-height: 32px;
+  color: var(--ci-accent);
+}
+.app-root .ci-btn:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+.app-root .ci-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.app-root .ci-hero {
+  background: var(--ci-accent);
+  color: #fff;
+  border-radius: var(--ci-radius);
+  padding: 24px 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 23px;
+}
+.app-root .ci-hero h2 {
+  font-size: 29px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.7px;
+  max-width: 450px;
+}
+.app-root .ci-hero p {
+  color: #eee8ff;
+  margin-top: 9px;
+}
+.app-root .ci-hero-art {
+  width: 128px;
+  flex: 0 0 128px;
+  text-align: center;
+  position: relative;
+}
+.app-root .ci-orbit {
+  position: absolute;
+  border: 1px solid #ffffff59;
+  inset: 5px -20px;
+  border-radius: 50%;
+  transform: rotate(-25deg);
+}
+.app-root .ci-sun {
+  display: inline-block;
+  font-size: 65px;
+  transform: rotate(12deg);
+}
+.app-root .ci-sticker {
+  position: relative;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #30243e;
+  background: var(--ci-lime);
+  padding: 3px 11px;
+  transform: rotate(-8deg);
+  border-radius: 5px;
+}
+.app-root .ci-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 23px;
+  align-items: start;
+}
+.app-root .ci-sectionhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+.app-root .ci-count {
+  font-size: 12px;
+  color: var(--ci-muted);
+  margin-left: 7px;
+  font-weight: 400;
+}
+.app-root .ci-tasklist {
+  background: var(--ci-surface);
+  border-radius: var(--ci-radius);
+  padding: 3px 18px;
+}
+.app-root .ci-task {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--ci-line);
+}
+.app-root .ci-task:last-child {
+  border-bottom: 0;
+}
+.app-root .ci-check {
+  appearance: none;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--ci-line);
+  border-radius: 8px;
+  background: var(--ci-surface);
+  margin: 0;
+  display: grid;
+  place-content: center;
+  transition: background 0.15s;
+}
+.app-root .ci-check:checked {
+  background: var(--ci-accent);
+  border-color: var(--ci-accent);
+}
+.app-root .ci-check:checked::after {
+  content: '✓';
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+}
+.app-root .ci-taskcontent {
+  flex: 1;
+  min-width: 0;
+}
+.app-root .ci-tasktitle {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 5px;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-task.done .ci-tasktitle {
+  text-decoration: line-through;
+  color: var(--ci-muted);
+}
+.app-root .ci-taskmeta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--ci-muted);
+}
+.app-root .ci-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: var(--ci-soft);
+  color: light-dark(#6341ad, #d5baff);
+  font-size: 11px;
+  font-weight: 600;
+}
+.app-root .ci-tag[data-course='软件工程'] {
+  background: light-dark(#e5f1d7, #293f2b);
+  color: light-dark(#426722, #bcdfa0);
+}
+.app-root .ci-tag[data-course='大学英语'] {
+  background: var(--ci-pink);
+  color: light-dark(#9c4055, #ffb3c1);
+}
+.app-root .ci-due {
+  color: light-dark(#b94b2e, #ffa07d);
+  font-weight: 650;
+}
+.app-root .ci-arrow {
+  border: 0;
+  background: transparent;
+  color: var(--ci-muted);
+  padding: 8px;
+  font-size: 19px;
+  flex: 0 0 auto;
+}
+.app-root .ci-donebar {
+  margin-top: 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ci-muted);
+}
+.app-root .ci-progress {
+  height: 5px;
+  background: var(--ci-line);
+  border-radius: 5px;
+  flex: 1;
+  overflow: hidden;
+}
+.app-root .ci-progress span {
+  display: block;
+  height: 100%;
+  background: var(--ci-accent);
+  transition: width 0.25s;
+}
+.app-root .ci-inboxtease {
+  background: var(--ci-yellow);
+  border-radius: var(--ci-radius);
+  padding: 20px;
+  position: relative;
+}
+.app-root .ci-teaseicon {
+  font-size: 32px;
+  margin-bottom: 9px;
+}
+.app-root .ci-inboxtease h3 {
+  font-size: 19px;
+  font-weight: 750;
+  margin-bottom: 8px;
+}
+.app-root .ci-inboxtease p {
+  color: light-dark(#766434, #ddceac);
+  font-size: 12px;
+  margin-bottom: 15px;
+}
+.app-root .ci-week {
+  margin-top: 20px;
+}
+.app-root .ci-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 10px;
+}
+.app-root .ci-day {
+  padding: 8px 2px;
+  border: 0;
+  background: transparent;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--ci-muted);
+}
+.app-root .ci-day b {
+  font-size: 16px;
+  color: var(--ci-ink);
+}
+.app-root .ci-day[aria-pressed='true'] {
+  background: var(--ci-accent);
+  color: #eee8ff;
+}
+.app-root .ci-day[aria-pressed='true'] b {
+  color: #fff;
+}
+.app-root .ci-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--ci-accent);
+}
+.app-root .ci-day[aria-pressed='true'] .ci-dot {
+  background: var(--ci-lime);
+}
+.app-root .ci-weeknote {
+  font-size: 12px;
+  margin-top: 10px;
+  min-height: 22px;
+  color: var(--ci-muted);
+}
+.app-root .ci-filters {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.app-root .ci-filter {
+  padding: 7px 12px;
+  border: 1px solid var(--ci-line);
+  background: var(--ci-surface);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.app-root .ci-filter[aria-pressed='true'] {
+  border-color: var(--ci-accent);
+  background: var(--ci-soft);
+  color: light-dark(#5832a7, #dbbfff);
+}
+.app-root .ci-notice {
+  font-size: 12px;
+  color: var(--ci-muted);
+  margin-top: 14px;
+}
+.app-root .ci-reviews {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.app-root .ci-reviewbtn {
+  border: 1px solid var(--ci-line);
+  background: var(--ci-surface);
+  border-radius: 12px;
+  padding: 10px 14px;
+  text-align: left;
+  flex: 1;
+  min-width: 160px;
+}
+.app-root .ci-reviewbtn[aria-pressed='true'] {
+  border-color: var(--ci-accent);
+  box-shadow: inset 0 0 0 1px var(--ci-accent);
+}
+.app-root .ci-reviewbtn small {
+  display: block;
+  color: var(--ci-muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.app-root .ci-review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 20px;
+}
+.app-root .ci-source {
+  background: var(--ci-yellow);
+  padding: 23px;
+  border-radius: var(--ci-radius);
+  align-self: start;
+  transform: rotate(-0.6deg);
+}
+.app-root .ci-sourcehead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 15px;
+  font-size: 12px;
+  color: light-dark(#766434, #ddceac);
+}
+.app-root .ci-quote {
+  font-size: 15px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-sourcefoot {
+  font-size: 11px;
+  color: light-dark(#766434, #ddceac);
+  margin-top: 23px;
+}
+.app-root .ci-form {
+  background: var(--ci-surface);
+  border-radius: var(--ci-radius);
+  padding: 22px;
+}
+.app-root .ci-form h3 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+.app-root .ci-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 13px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.app-root .ci-input {
+  width: 100%;
+  background: var(--ci-paper);
+  border: 1px solid var(--ci-line);
+  color: var(--ci-ink);
+  border-radius: 10px;
+  padding: 10px 11px;
+  min-width: 0;
+  font-weight: 400;
+  font-size: 14px;
+}
+.app-root textarea.ci-input {
+  min-height: 130px;
+  resize: vertical;
+}
+.app-root .ci-fieldrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.app-root .ci-change {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--ci-pink);
+  margin-bottom: 15px;
+  font-size: 12px;
+}
+.app-root .ci-empty {
+  text-align: center;
+  padding: 42px 15px;
+  color: var(--ci-muted);
+}
+.app-root .ci-empty span {
+  display: block;
+  font-size: 38px;
+  margin-bottom: 10px;
+}
+.app-root .ci-dialog {
+  margin: 0 28px 24px;
+  border: 2px solid var(--ci-accent);
+  border-radius: var(--ci-radius);
+  padding: 22px;
+  background: var(--ci-surface);
+}
+.app-root .ci-dialog .ci-sectionhead {
+  margin-bottom: 17px;
+}
+.app-root .ci-detailgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 16px 0;
+}
+.app-root .ci-detailgrid dt {
+  font-size: 11px;
+  color: var(--ci-muted);
+}
+.app-root .ci-detailgrid dd {
+  margin: 3px 0 0;
+  font-size: 14px;
+}
+.app-root .ci-proof {
+  padding: 15px;
+  border-radius: 12px;
+  background: var(--ci-paper);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-status {
+  margin: 0 28px 18px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--ci-soft);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.app-root .ci-footer {
+  padding: 13px 28px;
+  border-top: 1px solid var(--ci-line);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--ci-muted);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+.app-root .ci-error {
+  color: light-dark(#bc324b, #ff99a8);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.app-root .ci-particle {
+  position: absolute;
+  left: var(--x);
+  top: 36%;
+  font-size: 25px;
+  pointer-events: none;
+  z-index: 4;
+  animation: ci-party 1s ease-out forwards;
+}
+.app-root.ci-noemoji .ci-emoji {
+  display: none;
+}
+@keyframes ci-party {
+  from {
+    transform: translateY(0) rotate(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-110px) rotate(40deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-root *,
+  .app-root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 760px) {
+  .app-root .ci-top {
+    gap: 14px;
+    padding-left: 20px;
+  }
+  .app-root .ci-main {
+    padding: 22px 20px;
+  }
+  .app-root .ci-demo {
+    display: none;
+  }
+  .app-root .ci-columns {
+    grid-template-columns: 1fr;
+  }
+  .app-root .ci-side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .app-root .ci-week {
+    margin-top: 0;
+  }
+  .app-root .ci-hero h2 {
+    font-size: 26px;
+  }
+  .app-root .ci-dialog {
+    margin-left: 20px;
+    margin-right: 20px;
+  }
+  .app-root .ci-review {
+    gap: 14px;
+  }
+}
+@media (max-width: 500px) {
+  .app-root {
+    border-radius: 16px;
+  }
+  .app-root .ci-top {
+    padding: 18px 18px 13px;
+    gap: 15px;
+  }
+  .app-root .ci-brand {
+    margin-right: 85px;
+    font-size: 20px;
+  }
+  .app-root .ci-top nav {
+    gap: 4px;
+    width: 100%;
+    justify-content: space-between;
+  }
+  .app-root .ci-nav {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+  .app-root .ci-main {
+    padding: 19px 15px;
+  }
+  .app-root h1 {
+    font-size: 28px;
+  }
+  .app-root .ci-pagehead {
+    gap: 12px;
+  }
+  .app-root .ci-hero {
+    padding: 20px;
+    gap: 10px;
+  }
+  .app-root .ci-hero h2 {
+    font-size: 23px;
+  }
+  .app-root .ci-hero-art {
+    width: 62px;
+    flex-basis: 62px;
+  }
+  .app-root .ci-sun {
+    font-size: 42px;
+  }
+  .app-root .ci-orbit {
+    inset: 5px -7px;
+  }
+  .app-root .ci-sticker {
+    font-size: 8px;
+    padding: 3px 5px;
+  }
+  .app-root .ci-hero p {
+    font-size: 12px;
+  }
+  .app-root .ci-side,
+  .app-root .ci-review,
+  .app-root .ci-fieldrow {
+    grid-template-columns: 1fr;
+  }
+  .app-root .ci-week {
+    margin-top: 2px;
+  }
+  .app-root .ci-tasklist {
+    padding: 2px 13px;
+  }
+  .app-root .ci-task {
+    gap: 10px;
+  }
+  .app-root .ci-taskmeta {
+    font-size: 10px;
+    gap: 5px;
+  }
+  .app-root .ci-dialog {
+    margin-left: 15px;
+    margin-right: 15px;
+    padding: 17px;
+  }
+  .app-root .ci-status {
+    margin-left: 15px;
+    margin-right: 15px;
+  }
+  .app-root .ci-footer {
+    padding: 12px 15px;
+  }
+  .app-root .ci-form,
+  .app-root .ci-source {
+    padding: 18px;
+  }
+  .app-root .ci-input {
+    font-size: 16px;
+  }
+  .app-root .ci-detailgrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.app-root {
+  max-width: 1240px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  border-radius: 0;
+  overflow: visible;
+}
+.app-root .ci-top {
+  padding: 22px 28px 18px;
+  background: var(--ci-paper);
+}
+.app-root .ci-brand,
+.app-root .ci-nav {
+  text-decoration: none;
+}
+.app-root .ci-branddot {
+  color: var(--ci-accent);
+}
+.app-root .ci-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.app-root .ci-top .ci-nav-active {
+  background: var(--ci-accent);
+  color: #fff;
+}
+.app-root .ci-navcount {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.app-root .ci-main {
+  min-height: 60vh;
+}
+.app-root .ci-tasktitle {
+  color: var(--ci-ink);
+  text-decoration: none;
+}
+.app-root .ci-tasktitle:hover {
+  color: var(--ci-accent);
+}
+.app-root .ci-arrow {
+  text-decoration: none;
+}
+.app-root .ci-status {
+  margin-top: 18px;
+  margin-bottom: 0;
+}
+.app-root .ci-errorbanner,
+.app-root .ci-inlineerror {
+  background: var(--ci-pink);
+  color: light-dark(#9c2345, #ffc7d1);
+}
+.app-root .ci-inlineerror {
+  padding: 12px;
+  border-radius: 10px;
+  margin: 14px 0;
+  font-size: 13px;
+}
+.app-root .ci-dismiss {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+}
+.app-root .ci-loading {
+  padding: 25px 28px 0;
+  color: var(--ci-muted);
+}
+.app-root .ci-first {
+  padding: 34px 24px;
+  background: var(--ci-surface);
+  border-radius: var(--ci-radius);
+}
+.app-root .ci-firstemoji {
+  font-size: 40px;
+  display: block;
+  margin-bottom: 15px;
+}
+.app-root .ci-first p {
+  margin: 12px 0 22px;
+  color: var(--ci-muted);
+}
+.app-root .ci-first h2 {
+  line-height: 1.55;
+}
+.app-root .ci-daytask {
+  display: block;
+  margin: 5px 0;
+  color: var(--ci-accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.app-root .ci-field {
+  position: relative;
+}
+.app-root .ci-required {
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 10px;
+  color: var(--ci-muted);
+  font-weight: 400;
+}
+.app-root .ci-evidence {
+  font-size: 11px;
+  color: var(--ci-muted);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-morefields {
+  margin: 4px 0 18px;
+}
+.app-root summary {
+  font-size: 13px;
+  font-weight: 650;
+  padding: 9px 0;
+}
+.app-root .ci-morefields summary {
+  margin-bottom: 8px;
+}
+.app-root .ci-modal {
+  color: var(--ci-ink);
+  background: var(--ci-surface);
+  border: 1px solid var(--ci-line);
+  border-radius: 24px;
+  padding: 0;
+  width: min(620px, calc(100vw - 32px));
+  max-height: 90dvh;
+  box-sizing: border-box;
+}
+.app-root .ci-modal::backdrop {
+  background: #1c123e80;
+  backdrop-filter: blur(4px);
+}
+.app-root .ci-modalbody {
+  padding: 24px;
+}
+.app-root .ci-noticeinput {
+  min-height: 165px;
+}
+.app-root .ci-before {
+  margin-top: 0;
+  margin-bottom: 18px;
+}
+.app-root .ci-checklabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 12px 0 20px;
+  font-size: 13px;
+}
+.app-root .ci-checklabel input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ci-accent);
+  flex: 0 0 auto;
+}
+.app-root .ci-inboxlayout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.app-root .ci-messagelist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.app-root .ci-message {
+  border: 1px solid var(--ci-line);
+  border-radius: 15px;
+  padding: 13px;
+  background: var(--ci-surface);
+  text-align: left;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-message[aria-pressed='true'] {
+  border: 2px solid var(--ci-accent);
+  padding: 12px;
+  background: var(--ci-soft);
+}
+.app-root .ci-message b {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+}
+.app-root .ci-message small {
+  display: block;
+  font-size: 10px;
+  color: var(--ci-muted);
+  margin-top: 7px;
+}
+.app-root .ci-message > span {
+  display: inline-block;
+  font-size: 10px;
+  margin-top: 7px;
+  color: var(--ci-accent);
+}
+.app-root .ci-sourceevidence {
+  border-top: 1px solid light-dark(#dacd94, #746544);
+  margin-top: 18px;
+  padding-top: 14px;
+}
+.app-root .ci-sourceevidence h3 {
+  font-size: 13px;
+  margin-bottom: 9px;
+}
+.app-root .ci-sourceevidence p {
+  font-size: 11px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-warnings {
+  padding: 11px 13px 11px 29px;
+  background: var(--ci-yellow);
+  border-radius: 12px;
+  font-size: 12px;
+  margin: 0 0 16px;
+}
+.app-root .ci-warnings li + li {
+  margin-top: 6px;
+}
+.app-root .ci-match {
+  padding: 13px;
+  border-radius: 12px;
+  background: var(--ci-soft);
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+.app-root .ci-match a {
+  display: block;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-retry {
+  margin-top: 14px;
+  font-size: 12px;
+}
+.app-root .ci-taskfilters {
+  margin-bottom: 20px;
+  display: flex;
+  align-items: start;
+  gap: 18px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.app-root .ci-taskfilters .ci-filters {
+  margin-bottom: 0;
+}
+.app-root .ci-searchrow {
+  display: flex;
+  gap: 9px;
+  width: min(100%, 340px);
+}
+.app-root .ci-searchrow > input {
+  width: 55%;
+}
+.app-root .ci-sr {
+  font-size: 0;
+  flex: 1;
+}
+.app-root .ci-sr select {
+  font-size: 13px;
+}
+.app-root .ci-tasksplit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 22px;
+  align-items: start;
+}
+.app-root .ci-detailpanel {
+  padding: 23px;
+  background: var(--ci-surface);
+  border-radius: var(--ci-radius);
+  min-width: 0;
+}
+.app-root .ci-detailtitle {
+  margin-bottom: 11px;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-detailgrid dd {
+  overflow-wrap: anywhere;
+}
+.app-root .ci-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.app-root .ci-detailactions {
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+.app-root .ci-detailsection {
+  border-top: 1px solid var(--ci-line);
+  padding-top: 8px;
+  margin-top: 12px;
+}
+.app-root .ci-detailsection summary {
+  margin-bottom: 8px;
+}
+.app-root .ci-event {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ci-line);
+  font-size: 12px;
+}
+.app-root .ci-event small {
+  display: block;
+  color: var(--ci-muted);
+  font-size: 10px;
+}
+.app-root .ci-event p {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  margin: 6px 0;
+  max-height: 130px;
+  overflow: auto;
+}
+.app-root .ci-settingslayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 24px;
+  max-width: 950px;
+}
+.app-root .ci-proberesult {
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--ci-soft);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-celebration {
+  position: fixed;
+  inset: 25% 0 auto;
+  z-index: 20;
+  pointer-events: none;
+}
+@media (max-width: 1050px) {
+  .app-root .ci-demo {
+    display: none;
+  }
+  .app-root .ci-inboxlayout {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .app-root .ci-review {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .app-root .ci-top {
+    padding: 20px;
+  }
+  .app-root .ci-tasksplit,
+  .app-root .ci-settingslayout {
+    grid-template-columns: 1fr;
+  }
+  .app-root .ci-inboxlayout {
+    grid-template-columns: 1fr;
+  }
+  .app-root .ci-messagelist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .app-root .ci-detailpanel {
+    order: -1;
+  }
+}
+@media (max-width: 500px) {
+  .app-root .ci-top {
+    padding: 18px 15px 13px;
+  }
+  .app-root .ci-brand {
+    margin-right: 0;
+  }
+  .app-root .ci-nav {
+    padding: 7px 8px;
+    font-size: 11px;
+  }
+  .app-root .ci-modalbody {
+    padding: 18px;
+  }
+  .app-root .ci-messagelist {
+    grid-template-columns: 1fr;
+  }
+  .app-root .ci-input {
+    font-size: 16px;
+  }
+  .app-root .ci-searchrow {
+    width: 100%;
+  }
+}
