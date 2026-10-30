@@ -46,6 +46,7 @@ export interface InboxItem {
   matched_tasks: Task[]
   task_id: string | null
   updated_at: string
+  merge_change: MergeChange | null
   cancellation_supported: boolean
   cancellation_change: DeadlineChange | null
   split_supported: boolean
@@ -54,6 +55,7 @@ export interface InboxItem {
   deadline_change: DeadlineChange | null
 }
 export interface SplitDraft {
+  merge_change: MergeChange | null
   id: string
   position: number
   quote: string
@@ -81,6 +83,7 @@ export interface TaskDetail {
   sources: Message[]
   deadline_changes: DeadlineChange[]
   cancellation_changes: DeadlineChange[]
+  merge_changes: MergeChange[]
   events: TaskEvent[]
   evidence: Record<string, Evidence>
   method: string
@@ -109,6 +112,18 @@ export interface DeadlineChange {
   applied_version: number
   can_undo: boolean
   reverted: boolean
+}
+export interface MergePreview {
+  id: string
+  task: Task
+  before_fields: Partial<TaskInput>
+  after_fields: Partial<TaskInput>
+  warnings: string[]
+  created_at: string
+}
+export interface MergeChange extends DeadlineChange {
+  id: string
+  split_draft_id: string | null
 }
 export interface ModelConfig {
   enabled: boolean

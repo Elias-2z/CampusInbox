@@ -1285,3 +1285,37 @@ a {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.ci-merge-mode {
+  margin-bottom: 20px;
+}
+.ci-merge-field {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid #e4ddf3;
+  border-radius: 14px;
+  min-width: 0;
+}
+.ci-merge-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin: 10px 0 0;
+}
+.ci-merge-comparison dt {
+  font-size: 12px;
+  color: #777080;
+  margin-bottom: 6px;
+}
+.ci-merge-comparison dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+}
+@media (max-width: 600px) {
+  .ci-merge-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

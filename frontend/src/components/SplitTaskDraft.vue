@@ -11,19 +11,20 @@ import {
 } from '@/api'
 import { useCampus } from '@/stores/campus'
 import TaskForm from '@/components/TaskForm.vue'
+import MergeReview from '@/components/MergeReview.vue'
 const props = defineProps<{ item: SplitDraft }>()
 const store = useCampus()
 const draft = ref(draftOf(props.item.fields))
 const allowDuplicate = ref(false)
-const error = ref('')
-watch(
-  () => [props.item.id, props.item.updated_at],
-  () => {
-    draft.value = draftOf(props.item.fields)
-    allowDuplicate.value = false
-    error.value = ''
-  },
+const mergeMode = ref(
+  props.item.matched_tasks.some((t) => ['todo', 'in_progress'].includes(t.status)),
 )
+const error = ref('')
+watch([() => props.item.id, () => props.item.updated_at], () => {
+  draft.value = draftOf(props.item.fields)
+  allowDuplicate.value = false
+  error.value = ''
+})
 async function save() {
   const result = await store.mutate(
     () =>
@@ -78,7 +79,23 @@ async function refreshContext() {
     </h3>
     <p class="ci-proof ci-split-quote">{{ item.quote }}</p>
     <template v-if="item.status === 'accepted'">
-      <p class="ci-notice ci-before">已确认创建，重复导入不会再创建本项。</p>
+      <p class="ci-notice ci-before">
+        {{
+          item.merge_change
+            ? item.merge_change.reverted
+              ? '本次关联与补充已撤销，原文与历史仍保留。'
+              : '已关联原任务，来源和确认字段已保存。'
+            : '已确认创建，重复导入不会再创建本项。'
+        }}
+      </p>
+      <button
+        v-if="item.merge_change?.can_undo"
+        class="ci-btn cursor-interaction"
+        :disabled="store.busy"
+        @click="store.undoMerge(item.merge_change)"
+      >
+        撤销本次关联与补充 ↶
+      </button>
       <RouterLink class="ci-btn cursor-interaction" :to="`/tasks/${item.task_id}`"
         >查看任务 →</RouterLink
       >
@@ -93,7 +110,28 @@ async function refreshContext() {
       <ul v-if="item.warnings.length" class="ci-warnings">
         <li v-for="warning in item.warnings" :key="warning">{{ warning }}</li>
       </ul>
-      <form v-if="item.can_create" @submit.prevent="accept">
+      <div v-if="item.can_create" class="ci-actions ci-merge-mode" aria-label="条目处理方式">
+        <button
+          class="ci-btn cursor-interaction"
+          :class="{ 'ci-primary': mergeMode }"
+          :aria-pressed="mergeMode"
+          :disabled="store.busy"
+          @click="mergeMode = true"
+        >
+          🔗 关联已有任务
+        </button>
+        <button
+          class="ci-btn cursor-interaction"
+          :class="{ 'ci-primary': !mergeMode }"
+          :aria-pressed="!mergeMode"
+          :disabled="store.busy"
+          @click="mergeMode = false"
+        >
+          ✨ 创建独立任务
+        </button>
+      </div>
+      <MergeReview v-if="item.can_create && mergeMode" :source="item" split-draft />
+      <form v-else-if="item.can_create" @submit.prevent="accept">
         <TaskForm v-model="draft" :busy="store.busy" :evidence="item.evidence" />
         <div v-if="item.matched_tasks.length" class="ci-match">
           <b>📎 可能重复，请先核对</b>
@@ -140,6 +178,14 @@ async function refreshContext() {
         @click="decide('ignore')"
       >
         已核对，跳过此条
+      </button>
+      <button
+        v-if="item.can_create && mergeMode"
+        class="ci-btn ci-text cursor-interaction"
+        :disabled="store.busy"
+        @click="decide('ignore')"
+      >
+        跳过此条
       </button>
     </template>
     <div v-if="error" class="ci-inlineerror" role="alert">

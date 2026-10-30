@@ -10,9 +10,9 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import cancellations, deadlines, services, splitting
+from campus_inbox import cancellations, deadlines, merging, services, splitting
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
-from campus_inbox.models import ModelSettings, Suggestion, Task, now
+from campus_inbox.models import ModelSettings, SplitDraft, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
@@ -25,6 +25,9 @@ from campus_inbox.schemas import (
     ImportMessage,
     InboxItem,
     LocalModelConfig,
+    MergeChangeRead,
+    MergePreview,
+    MergePreviewRequest,
     SplitAccept,
     SplitDecision,
     SplitEdit,
@@ -167,6 +170,39 @@ def create_app(db_path: Path | None = None, provider_factory=OllamaProvider) -> 
     )
     def accept_split(draft_id: str, body: SplitAccept, session: WriteDB):
         return splitting.accept(session, draft_id, body)
+
+    @application.post(
+        "/api/suggestions/{suggestion_id}/merge-preview",
+        response_model=MergePreview,
+        tags=["merge notices"],
+    )
+    def merge_preview(suggestion_id: str, body: MergePreviewRequest, session: WriteDB):
+        return merging.preview(session, suggestion_id, body)
+
+    @application.post(
+        "/api/split-drafts/{draft_id}/merge-preview",
+        response_model=MergePreview,
+        tags=["merge notices"],
+    )
+    def split_merge_preview(draft_id: str, body: MergePreviewRequest, session: WriteDB):
+        draft = services.get_or_404(session, SplitDraft, draft_id)
+        return merging.preview(session, draft.suggestion_id, body, draft.id)
+
+    @application.post(
+        "/api/merge-proposals/{proposal_id}/confirm",
+        response_model=MergeChangeRead,
+        tags=["merge notices"],
+    )
+    def merge_confirm(proposal_id: str, session: WriteDB):
+        return merging.confirm(session, proposal_id)
+
+    @application.post(
+        "/api/merge-changes/{change_id}/undo",
+        response_model=MergeChangeRead,
+        tags=["merge notices"],
+    )
+    def merge_undo(change_id: str, session: WriteDB):
+        return merging.undo(session, change_id)
 
     @application.post(
         "/api/split-drafts/{draft_id}/{operation}", response_model=InboxItem, tags=["split tasks"]

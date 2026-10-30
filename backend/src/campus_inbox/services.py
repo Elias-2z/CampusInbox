@@ -13,7 +13,7 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from campus_inbox import cancellations
+from campus_inbox import cancellations, merging
 from campus_inbox.deadlines import change_read
 from campus_inbox.extraction import (
     cancellation_supported,
@@ -26,6 +26,8 @@ from campus_inbox.models import (
     CancellationChange,
     DeadlineChange,
     DeadlineProposal,
+    MergeChange,
+    MergeProposal,
     Message,
     ModelSettings,
     SplitDraft,
@@ -116,6 +118,15 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     task = session.exec(select(Task).where(Task.suggestion_id == suggestion.id)).first()
     change = session.get(DeadlineChange, suggestion.id)
     cancellation = session.get(CancellationChange, suggestion.id)
+    merge = merging.find_change(session, merging.source_key(suggestion.id, None))
+    split_merges = {
+        change.split_draft_id: change
+        for change in session.exec(
+            select(MergeChange).where(
+                MergeChange.suggestion_id == suggestion.id, MergeChange.split_draft_id.is_not(None)
+            )
+        )
+    }
     items = list(
         session.exec(
             select(SplitDraft)
@@ -152,8 +163,11 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
             if change
             else cancellation.task_id
             if cancellation
+            else merge.task_id
+            if merge
             else None
         ),
+        merge_change=merging.change_read(session, merge) if merge else None,
         cancellation_supported=suggestion.action == "review"
         and cancellation_supported(message.text),
         cancellation_change=cancellations.change_read(session, cancellation)
@@ -162,7 +176,12 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         split_supported=suggestion.action == "review" and bool(numbered_parts(message.text)[1]),
         split_items=[
             SplitDraftRead(
-                **item.model_dump(),
+                **item.model_dump(exclude={"task_id"}),
+                task_id=item.task_id
+                or (split_merges[item.id].task_id if item.id in split_merges else None),
+                merge_change=merging.change_read(session, split_merges[item.id])
+                if item.id in split_merges
+                else None,
                 matched_tasks=[
                     TaskRead.model_validate(t) for t in matching_tasks(session, item.fields)
                 ],
@@ -388,7 +407,12 @@ def detail(session: Session, task: Task) -> TaskDetail:
     by_undo = {change.undo_event_id: change for change in changes if change.undo_event_id}
     split_draft = session.exec(select(SplitDraft).where(SplitDraft.task_id == task.id)).first()
     evidence = dict(split_draft.evidence if split_draft else suggestion.evidence)
+    merges = list(session.exec(select(MergeChange).where(MergeChange.task_id == task.id)))
+    merge_events = {change.event_id: change for change in merges}
+    merge_undos = {change.undo_event_id: change for change in merges if change.undo_event_id}
+    prior_merge = {}
     prior_due = {}
+    events.sort(key=lambda event: (event.after.get("version", 0), event.created_at, event.id))
     for event in events:
         if event.operation == "update":
             for key in event.after:
@@ -408,12 +432,25 @@ def detail(session: Session, task: Task) -> TaskDetail:
                 evidence.pop("due_at", None)
             else:
                 evidence["due_at"] = previous
+        elif event.operation == "merge" and event.id in merge_events:
+            proposal = get_or_404(session, MergeProposal, merge_events[event.id].proposal_id)
+            prior_merge[event.id] = {key: evidence.get(key) for key in proposal.after_fields}
+            for key, value in proposal.evidence.items():
+                evidence[key] = value
+        elif event.operation == "merge_undo" and event.id in merge_undos:
+            previous = prior_merge.get(merge_undos[event.id].event_id, {})
+            for key, value in previous.items():
+                if value is None:
+                    evidence.pop(key, None)
+                else:
+                    evidence[key] = value
     source_ids = list(dict.fromkeys([task.message_id, *[event.message_id for event in events]]))
     sources = [MessageRead.model_validate(get_or_404(session, Message, mid)) for mid in source_ids]
     return TaskDetail(
         task=TaskRead.model_validate(task),
         source=sources[0],
         sources=sources,
+        merge_changes=[merging.change_read(session, change) for change in merges],
         deadline_changes=[change_read(session, change) for change in changes],
         cancellation_changes=[
             cancellations.change_read(session, change)

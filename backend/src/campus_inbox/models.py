@@ -130,3 +130,29 @@ class SplitDraft(SQLModel, table=True):
     task_id: str | None = Field(default=None, foreign_key="task.id", unique=True)
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
+
+
+class MergeProposal(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    source_key: str = Field(index=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
+    split_draft_id: str | None = Field(default=None, foreign_key="splitdraft.id")
+    source_updated_at: datetime
+    task_id: str = Field(foreign_key="task.id", index=True)
+    task_version: int
+    before_fields: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    after_fields: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    evidence: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=now)
+
+
+class MergeChange(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    source_key: str = Field(unique=True, index=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
+    split_draft_id: str | None = Field(default=None, foreign_key="splitdraft.id", unique=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    proposal_id: str = Field(foreign_key="mergeproposal.id", unique=True)
+    event_id: str = Field(foreign_key="taskevent.id", unique=True)
+    applied_version: int
+    undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)

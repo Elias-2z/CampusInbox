@@ -15,6 +15,7 @@ import TaskForm from '@/components/TaskForm.vue'
 import DeadlineReview from '@/components/DeadlineReview.vue'
 import CancellationReview from '@/components/CancellationReview.vue'
 import SplitReview from '@/components/SplitReview.vue'
+import MergeReview from '@/components/MergeReview.vue'
 const store = useCampus()
 const route = useRoute()
 const router = useRouter()
@@ -22,6 +23,7 @@ const tab = ref('pending')
 const selectedId = ref('')
 const drafts = reactive<Record<string, TaskInput>>({})
 const duplicateAllowed = ref(false)
+const mergeMode = ref(false)
 const tabs = [
   { id: 'pending', title: '待处理' },
   { id: 'accepted', title: '已处理' },
@@ -68,9 +70,12 @@ watch(
   },
 )
 watch(
-  () => [selected.value?.id, selected.value?.status],
+  [() => selected.value?.id, () => selected.value?.status],
   ([id, status], previous) => {
     duplicateAllowed.value = false
+    mergeMode.value = !!selected.value?.matched_tasks.some((t) =>
+      ['todo', 'in_progress'].includes(t.status),
+    )
     if (
       id &&
       selected.value &&
@@ -110,6 +115,29 @@ async function retry() {
     '重新识别完成，请核对结果。',
   )
   if (result) drafts[id] = draftOf(result.fields)
+}
+function processedLabel(item: InboxItem) {
+  if (item.split_items.length) return `已处理 ${item.split_items.length} 项条目`
+  if (item.merge_change) return item.merge_change.reverted ? '关联已撤销' : '已关联原任务'
+  if (item.cancellation_change)
+    return item.cancellation_change.reverted ? '取消已撤销' : '已取消原任务'
+  if (item.deadline_change) return item.deadline_change.reverted ? '更新已撤销' : '已更新原任务'
+  return '已创建任务'
+}
+function processedDescription(item: InboxItem) {
+  if (item.merge_change)
+    return item.merge_change.reverted
+      ? '本次关联与字段补充已撤销，通知和操作历史仍保留。'
+      : '本条通知已关联原任务，并应用明确勾选的字段。'
+  if (item.cancellation_change)
+    return item.cancellation_change.reverted
+      ? '本次取消已撤销，通知和操作历史仍保留。'
+      : '取消通知已关联原任务，任务内容仍保留。'
+  if (item.deadline_change)
+    return item.deadline_change.reverted
+      ? '本次时间更新已撤销，通知和操作历史仍保留。'
+      : '这条变更已应用到原任务，来源已保存。'
+  return '这条通知已经处理，重复导入不会再次创建任务。'
 }
 const methodName = (method: string) =>
   ({ rule: '规则识别', mixed: '规则 + 模型辅助', manual: '手动创建' })[method] || method
@@ -176,21 +204,11 @@ const methodName = (method: string) =>
           item.status === 'processing'
             ? '正在识别'
             : item.status === 'accepted'
-              ? item.split_items.length
-                ? `已创建 ${item.split_items.filter((d) => d.status === 'accepted').length} 项任务`
-                : item.cancellation_change
-                  ? item.cancellation_change.reverted
-                    ? '取消已撤销'
-                    : '已取消原任务'
-                  : item.deadline_change
-                    ? item.deadline_change.reverted
-                      ? '更新已撤销'
-                      : '已更新原任务'
-                    : '已创建任务'
+              ? processedLabel(item)
               : item.status === 'ignored'
                 ? '已忽略'
                 : item.split_items.length
-                  ? `已创建 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
+                  ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
                   : item.split_supported
                     ? '多任务待拆分'
                     : item.action === 'review'
@@ -254,32 +272,16 @@ const methodName = (method: string) =>
           :item="selected"
         />
         <template v-else-if="selected.status === 'accepted'"
-          ><h3>
-            {{
-              selected.cancellation_change
-                ? selected.cancellation_change.reverted
-                  ? '↶ 本次取消已撤销'
-                  : '✅ 已取消原任务'
-                : selected.deadline_change
-                  ? selected.deadline_change.reverted
-                    ? '↶ 本次更新已撤销'
-                    : '✅ 已更新原任务'
-                  : '✅ 已创建正式任务'
-            }}
-          </h3>
-          <p class="ci-notice ci-before">
-            {{
-              selected.cancellation_change
-                ? selected.cancellation_change.reverted
-                  ? '任务已恢复原状态，通知和历史仍保留。'
-                  : '取消通知已关联原任务，任务内容仍保留。'
-                : selected.deadline_change
-                  ? selected.deadline_change.reverted
-                    ? '原截止时间已恢复，通知与修改历史仍然保留。'
-                    : '这条变更已应用到原任务，没有创建重复任务。'
-                  : '这条通知已经处理，重复导入不会再次创建任务。'
-            }}
-          </p>
+          ><h3>✅ {{ processedLabel(selected) }}</h3>
+          <p class="ci-notice ci-before">{{ processedDescription(selected) }}</p>
+          <button
+            v-if="selected.merge_change?.can_undo"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.undoMerge(selected.merge_change)"
+          >
+            撤销本次关联与补充 ↶
+          </button>
           <button
             v-if="selected.cancellation_change?.can_undo"
             class="ci-btn cursor-interaction"
@@ -347,32 +349,55 @@ const methodName = (method: string) =>
             :key="selected.id"
             :item="selected"
           />
-          <form v-else-if="selected.action === 'create'" @submit.prevent="accept">
-            <TaskForm v-model="draft" :busy="store.busy" :evidence="selected.evidence" /><label
-              v-if="selected.matched_tasks.length"
-              class="ci-checklabel"
-              ><input
-                v-model="duplicateAllowed"
-                type="checkbox"
-                :disabled="store.busy"
-              />已核对，仍然创建独立任务</label
-            >
-            <div class="ci-actions">
+          <template v-else-if="selected.action === 'create'">
+            <div class="ci-actions ci-merge-mode" aria-label="通知处理方式">
               <button
-                class="ci-btn ci-primary cursor-interaction"
-                :disabled="store.busy || (!!selected.matched_tasks.length && !duplicateAllowed)"
-              >
-                {{ store.busy ? '正在保存…' : '确认创建任务 ✓' }}</button
-              ><button
-                type="button"
-                class="ci-btn ci-text cursor-interaction"
+                class="ci-btn cursor-interaction"
+                :class="{ 'ci-primary': mergeMode }"
+                :aria-pressed="mergeMode"
                 :disabled="store.busy"
-                @click="store.ignore(selected)"
+                @click="mergeMode = true"
               >
-                忽略这条
+                🔗 关联已有任务
+              </button>
+              <button
+                class="ci-btn cursor-interaction"
+                :class="{ 'ci-primary': !mergeMode }"
+                :aria-pressed="!mergeMode"
+                :disabled="store.busy"
+                @click="mergeMode = false"
+              >
+                ✨ 创建独立任务
               </button>
             </div>
-          </form>
+            <MergeReview v-if="mergeMode" :source="selected" />
+            <form v-else @submit.prevent="accept">
+              <TaskForm v-model="draft" :busy="store.busy" :evidence="selected.evidence" /><label
+                v-if="selected.matched_tasks.length"
+                class="ci-checklabel"
+                ><input
+                  v-model="duplicateAllowed"
+                  type="checkbox"
+                  :disabled="store.busy"
+                />已核对，仍然创建独立任务</label
+              >
+              <div class="ci-actions">
+                <button
+                  class="ci-btn ci-primary cursor-interaction"
+                  :disabled="store.busy || (!!selected.matched_tasks.length && !duplicateAllowed)"
+                >
+                  {{ store.busy ? '正在保存…' : '确认创建任务 ✓' }}</button
+                ><button
+                  type="button"
+                  class="ci-btn ci-text cursor-interaction"
+                  :disabled="store.busy"
+                  @click="store.ignore(selected)"
+                >
+                  忽略这条
+                </button>
+              </div>
+            </form>
+          </template>
           <div
             v-else-if="!selected.deadline_supported && !selected.cancellation_supported"
             class="ci-actions"

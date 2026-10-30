@@ -215,6 +215,20 @@ function eventValue(key: string, value: unknown) {
             取消后已有其他编辑，请核对下方历史后手动调整。
           </p>
         </section>
+        <section v-for="change in info.merge_changes" :key="change.id" class="ci-deadline-history">
+          <b>{{ change.reverted ? '↶ 关联与字段补充已撤销' : '🔗 已确认的通知关联与补充' }}</b>
+          <button
+            v-if="change.can_undo"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.undoMerge(change)"
+          >
+            撤销本次关联与补充 ↶
+          </button>
+          <p v-else-if="!change.reverted" class="ci-notice">
+            关联后已有其他编辑，请核对历史后人工调整。
+          </p>
+        </section>
         <details class="ci-detailsection" open>
           <summary class="cursor-interaction">📎 通知来源 · {{ info.sources.length }} 条</summary>
           <article v-for="(source, index) in info.sources" :key="source.id" class="ci-linkedsource">
@@ -255,7 +269,11 @@ function eventValue(key: string, value: unknown) {
                       ? '用户确认取消任务'
                       : event.operation === 'cancel_undo'
                         ? '撤销取消任务'
-                        : '用户更新任务'
+                        : event.operation === 'merge'
+                          ? '用户确认通知关联与字段补充'
+                          : event.operation === 'merge_undo'
+                            ? '撤销通知关联与字段补充'
+                            : '用户更新任务'
             }}</b
             ><small
               >{{ displayDate(event.created_at, true) }} ·
@@ -263,7 +281,12 @@ function eventValue(key: string, value: unknown) {
                 info.sources.find((source) => source.id === event.message_id)?.source || '用户操作'
               }}</small
             ><template v-if="event.operation !== 'create'"
-              ><p v-for="key in changes(event)" :key="key">
+              ><p
+                v-if="!changes(event).length && ['merge', 'merge_undo'].includes(event.operation)"
+              >
+                仅记录通知关联状态，业务字段无变化。
+              </p>
+              <p v-for="key in changes(event)" :key="key">
                 {{ fieldNames[key] }}：{{ eventValue(key, event.before[key]) }} →
                 {{ eventValue(key, event.after[key]) }}
               </p></template

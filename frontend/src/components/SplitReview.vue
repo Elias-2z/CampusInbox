@@ -46,7 +46,7 @@ async function generate() {
     </template>
     <template v-else>
       <p class="ci-split-progress" role="status">
-        ✨ 已创建 {{ confirmed }} 项 · 待审核 {{ remaining }} 项 · 共
+        ✨ 已确认 {{ confirmed }} 项 · 待审核 {{ remaining }} 项 · 共
         {{ item.split_items.length }} 项
       </p>
       <p v-if="!remaining" class="ci-notice ci-before">本条通知已处理。跳过的条目仍可恢复审核。</p>

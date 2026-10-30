@@ -5,6 +5,7 @@ import {
   request,
   taskInput,
   type DeadlineChange,
+  type MergeChange,
   type InboxItem,
   type Task,
   type TaskStatus,
@@ -140,6 +141,15 @@ export const useCampus = defineStore('campus', () => {
         }),
       )
   }
+  function registerMergeUndo(change: MergeChange) {
+    if (change.can_undo) setUndo(() => post(`/merge-changes/${change.id}/undo`))
+  }
+  async function undoMerge(change: MergeChange) {
+    await mutate(
+      () => post<MergeChange>(`/merge-changes/${change.id}/undo`),
+      '本次关联与字段补充已撤销，原文和历史仍保留。',
+    )
+  }
   function registerCancellationUndo(change: DeadlineChange) {
     if (change.can_undo) setUndo(() => post(`/cancellation-changes/${change.suggestion_id}/undo`))
   }
@@ -189,6 +199,8 @@ export const useCampus = defineStore('campus', () => {
     changeStatus,
     archive,
     ignore,
+    registerMergeUndo,
+    undoMerge,
     registerCancellationUndo,
     undoCancellation,
     registerDeadlineUndo,

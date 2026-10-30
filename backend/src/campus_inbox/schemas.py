@@ -178,18 +178,61 @@ class CancellationChangeRead(DeadlineChangeRead):
     pass
 
 
+MergeField = Literal[
+    "title",
+    "course",
+    "kind",
+    "description",
+    "due_at",
+    "submission_platform",
+    "submission_method",
+    "file_requirements",
+    "location",
+    "remarks",
+]
+
+
+class MergePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    task_id: str = Field(min_length=1)
+    fields: list[MergeField] = Field(default_factory=list, max_length=10)
+
+
+class MergePreview(BaseModel):
+    id: str
+    task: TaskRead
+    before_fields: dict
+    after_fields: dict
+    warnings: list[str]
+    created_at: Timestamp
+
+
+class MergeChangeRead(BaseModel):
+    id: str
+    suggestion_id: str
+    split_draft_id: str | None
+    task: TaskRead
+    event_id: str
+    undo_event_id: str | None
+    applied_version: int
+    reverted: bool
+    can_undo: bool
+
+
 class TaskDetail(BaseModel):
     task: TaskRead
     source: MessageRead
     sources: list[MessageRead]
     deadline_changes: list[DeadlineChangeRead]
     cancellation_changes: list[CancellationChangeRead]
+    merge_changes: list[MergeChangeRead]
     events: list[EventRead]
     evidence: dict
     method: str
 
 
 class SplitDraftRead(ReadModel):
+    merge_change: MergeChangeRead | None = None
     id: str
     position: int
     quote: str
@@ -248,6 +291,7 @@ class InboxItem(BaseModel):
     matched_tasks: list[TaskRead]
     task_id: str | None = None
     updated_at: Timestamp
+    merge_change: MergeChangeRead | None = None
     cancellation_supported: bool
     cancellation_change: CancellationChangeRead | None = None
     split_supported: bool

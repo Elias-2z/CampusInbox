@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from campus_inbox import services
 from campus_inbox.extraction import COURSES, extract_rules, numbered_parts
-from campus_inbox.models import Message, SplitDraft, Suggestion, Task, TaskEvent, now
+from campus_inbox.models import MergeChange, Message, SplitDraft, Suggestion, Task, TaskEvent, now
 from campus_inbox.schemas import SplitAccept, SplitEdit, TaskFields
 
 
@@ -111,8 +111,14 @@ def settle(session: Session, suggestion: Suggestion):
 
 def accept(session: Session, draft_id: str, body: SplitAccept) -> Task:
     draft = services.get_or_404(session, SplitDraft, draft_id)
-    if draft.status == "accepted" and draft.task_id:
-        return services.get_or_404(session, Task, draft.task_id)
+    if draft.status == "accepted":
+        if draft.task_id:
+            return services.get_or_404(session, Task, draft.task_id)
+        merge = session.exec(
+            select(MergeChange).where(MergeChange.split_draft_id == draft.id)
+        ).first()
+        if merge:
+            return services.get_or_404(session, Task, merge.task_id)
     suggestion = pending(session, draft, body.expected_updated_at)
     if not draft.can_create:
         raise HTTPException(409, "此条涉及变更或其他内容，不能作为新任务创建。")
