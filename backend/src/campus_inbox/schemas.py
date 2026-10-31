@@ -1,6 +1,6 @@
 """Validated API contracts, separate from database tables."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -356,3 +356,11 @@ class ReminderAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_version: int = Field(ge=0)
     snooze_minutes: Literal[15, 30, 60, 120] = 30
+
+
+class CalendarFeed(BaseModel):
+    start: date
+    end: date
+    timezone: str
+    tasks: list[TaskRead]
+    undated: list[TaskRead]

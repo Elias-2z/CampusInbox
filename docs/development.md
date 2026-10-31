@@ -70,6 +70,12 @@ MergeProposal / MergeChange 增量创建，不修改旧表。关联预览固定�
 
 仅站内提醒，关闭页面不会通知。自动化测试通过 create_app(reminder_clock=...) 注入固定时钟，不依赖真实等待；详见 reminders.md。
 
+## 截止日历与导出
+
+日历与 .ics 接口只读，接受本地日期范围和命名时区，将本地午夜边界转换为 UTC 查询；周 / 月页面共享任务数据，按同一浏览器时区归日。导出采用 RFC 5545 的 VEVENT 截止时刻语义，无附加时长或提醒；icalendar 是仅用于测试的独立解析器依赖。
+
+前端日期单元测试使用 Node 内置测试运行器，`npm run test:calendar` 已加入 scripts/check.py 和 CI。覆盖上海 / 纽约 / UTC 下的日期导航、闰年、月底与夏令时，详见 calendar.md。系统日历实机导入和自动同步尚未验收。
+
 ## 模型
 
 业务通过 LLMProvider 接口调用 Ollama，使用 JSON Schema 结构化输出。模型只填补有原文依据的缺失字段；不覆盖规则已确定值。时间由日期模块计算，不接收模型虚构的日期。

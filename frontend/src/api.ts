@@ -125,6 +125,44 @@ export interface MergeChange extends DeadlineChange {
   id: string
   split_draft_id: string | null
 }
+export interface CalendarFeed {
+  start: string
+  end: string
+  timezone: string
+  tasks: Task[]
+  undated: Task[]
+}
+export async function downloadCalendar(query: URLSearchParams): Promise<void> {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 30000)
+  try {
+    const response = await fetch(`/api/calendar/export.ics?${query}`, { signal: controller.signal })
+    if (!response.ok) {
+      const data = await response.json().catch(() => null)
+      throw new Error(
+        typeof data?.detail === 'string' ? data.detail : '日历导出未完成，请稍后重试。',
+      )
+    }
+    if (!response.headers.get('Content-Type')?.startsWith('text/calendar'))
+      throw new Error('日历文件格式不正确，请刷新后重试。')
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download =
+      response.headers.get('Content-Disposition')?.match(/filename="([a-zA-Z0-9._-]+)"/)?.[1] ||
+      'campusinbox.ics'
+    document.body.append(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError')
+      throw new Error('日历导出超时，请重试。')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 export interface ReminderConfig {
   enabled: boolean
   lead_minutes: number

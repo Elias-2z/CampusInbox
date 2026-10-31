@@ -40,6 +40,7 @@ onUnmounted(() => {
         ><RouterLink to="/inbox" class="ci-nav" active-class="ci-nav-active"
           >📮 收件箱 <span class="ci-navcount">{{ store.pending.length }}</span></RouterLink
         ><RouterLink to="/tasks" class="ci-nav" active-class="ci-nav-active">🗂️ 我的任务</RouterLink
+        ><RouterLink to="/calendar" class="ci-nav" active-class="ci-nav-active">🗓️ 日历</RouterLink
         ><RouterLink to="/reminders" class="ci-nav" active-class="ci-nav-active"
           >🔔 提醒 <span class="ci-navcount">{{ store.unreadReminders.length }}</span></RouterLink
         ><RouterLink to="/settings" class="ci-nav" active-class="ci-nav-active">⚙️ 设置</RouterLink>

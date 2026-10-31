@@ -171,6 +171,9 @@ const total = computed(
             />
           </button>
         </div>
+        <RouterLink to="/calendar" class="ci-btn ci-text cursor-interaction"
+          >打开完整日历 ↗</RouterLink
+        >
         <div class="ci-weeknote">
           <template v-if="dueForDay.length"
             ><RouterLink

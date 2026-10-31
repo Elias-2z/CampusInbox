@@ -12,7 +12,8 @@
     "lint": "oxlint . --fix && eslint . --fix --cache",
     "format": "prettier --write .",
     "lint:check": "oxlint . && eslint .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:calendar": "node --test tests/calendar.test.mjs"
   },
   "dependencies": {
     "element-plus": "^2.14.7",

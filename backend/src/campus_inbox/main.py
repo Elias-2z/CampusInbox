@@ -3,19 +3,21 @@
 import os
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import cancellations, deadlines, merging, reminders, services, splitting
+from campus_inbox import calendar, cancellations, deadlines, merging, reminders, services, splitting
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
 from campus_inbox.models import ModelSettings, ReminderSettings, SplitDraft, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
+    CalendarFeed,
     CancellationChangeRead,
     CancellationPreview,
     CancellationPreviewRequest,
@@ -275,6 +277,37 @@ def create_app(
                 status="archived",
                 expected_version=expected_version,
             ),
+        )
+
+    @application.get("/api/calendar", response_model=CalendarFeed, tags=["calendar"])
+    def calendar_feed(
+        session: DB,
+        start: date,
+        end: date,
+        timezone: str = "Asia/Shanghai",
+        status: calendar.CalendarScope = "active",
+        course: Annotated[str, Query(max_length=100)] = "",
+    ):
+        return calendar.feed(session, start, end, timezone, status, course)
+
+    @application.get("/api/calendar/export.ics", tags=["calendar"])
+    def calendar_export(
+        session: DB,
+        start: date,
+        end: date,
+        timezone: str = "Asia/Shanghai",
+        status: calendar.CalendarScope = "active",
+        course: Annotated[str, Query(max_length=100)] = "",
+    ):
+        result = calendar.feed(session, start, end, timezone, status, course)
+        return Response(
+            calendar.export(result),
+            media_type="text/calendar",
+            headers={
+                "Content-Disposition": f'attachment; filename="{calendar.filename(start, end)}"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
         )
 
     @application.get("/api/reminders", response_model=ReminderFeed, tags=["reminders"])

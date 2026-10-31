@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import('@/views/RemindersView.vue'),
       meta: { title: '截止提醒' },
     },
+    {
+      path: '/calendar',
+      component: () => import('@/views/CalendarView.vue'),
+      meta: { title: '截止日历' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior(to, from) {

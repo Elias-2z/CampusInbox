@@ -6,7 +6,7 @@
 
 验收：粘贴一条带明确日期时间的课程通知 → 查看原文、提取字段及依据 → 修改并确认 → 正式任务出现 → 刷新或重启后保留 → 完成任务并可撤销此次状态变更。重复确认不得重复创建。日期不明确不能编造；模型失效不得丢失原文。
 
-创建闭环之外，现已增加截止时间变更审核：明确的延期 / 提前通知可以匹配并由用户确认更新已有任务（见 deadline-review.md）。取消通知也支持匹配、预览、确认与撤销（见 cancellation-review.md）。连续编号的多任务通知支持逐项审核创建（见 multi-task-review.md）；普通新通知 / 拆分条目可关联已有任务并明确勾选字段补充（见 notice-merging.md）；未编号多任务及已创建任务归并仍待后续。站内截止提醒已可用（见 reminders.md）。OCR、系统提醒推送、日历、平台 Connector、云端 API、数据备份恢复留到后续阶段。首页仅显示真实本地数据，不放演示任务。
+创建闭环之外，现已增加截止时间变更审核：明确的延期 / 提前通知可以匹配并由用户确认更新已有任务（见 deadline-review.md）。取消通知也支持匹配、预览、确认与撤销（见 cancellation-review.md）。连续编号的多任务通知支持逐项审核创建（见 multi-task-review.md）；普通新通知 / 拆分条目可关联已有任务并明确勾选字段补充（见 notice-merging.md）；未编号多任务及已创建任务归并仍待后续。站内截止提醒已可用（见 reminders.md）。周 / 月截止日历与 .ics 手动导出已可用（见 calendar.md）。OCR、系统提醒推送、日历自动同步、平台 Connector、云端 API、数据备份恢复留到后续阶段。首页仅显示真实本地数据，不放演示任务。
 
 ## 最小数据模型
 
@@ -34,10 +34,11 @@
 - POST /api/suggestions/{id}/split；PATCH /api/split-drafts/{id}；POST /api/split-drafts/{id}/accept 或 ignore / reopen
 - POST /api/suggestions/{id}/merge-preview 或 /api/split-drafts/{id}/merge-preview；POST /api/merge-proposals/{id}/confirm；POST /api/merge-changes/{id}/undo
 - GET /api/reminders；GET / PUT /api/settings/reminders；POST /api/reminders/{id}/read 或 snooze / restore
+- GET /api/calendar；GET /api/calendar/export.ics（同一范围 / 时区 / 筛选，只读）
 - GET /api/settings/model；PUT /api/settings/model；POST /api/settings/model/probe
 
 确认、创建与事件记录使用事务；通过建议 / 草稿状态与事务防止重复确认，同一多任务建议可关联多项任务。任务修改携带 expected_version，过期版本返回 409，避免静默覆盖。相同原文、来源和消息日期去重；不同日期的“明天”等通知不能被跨日误去重。
 
 ## 代码边界
 
-backend/src/campus_inbox/{models,schemas,extraction,providers,services,deadlines,cancellations,splitting,merging,reminders,main}.py；前端 API 类型与请求在 src/api.ts，业务状态在 Pinia store，视图和共享组件独立。模型只返回待校验字段，不执行数据库操作。重要字段必须能在原文中找到依据；可靠规则值不被模型覆盖。
+backend/src/campus_inbox/{models,schemas,extraction,providers,services,deadlines,cancellations,splitting,merging,reminders,calendar,main}.py；前端 API 类型与请求在 src/api.ts，业务状态在 Pinia store，视图和共享组件独立。模型只返回待校验字段，不执行数据库操作。重要字段必须能在原文中找到依据；可靠规则值不被模型覆盖。
