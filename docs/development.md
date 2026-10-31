@@ -95,6 +95,6 @@ MergeProposal / MergeChange 增量创建，不修改旧表。关联预览固定�
 
 ## GitHub 与平台验证
 
-本地分支和提交使用 GitHub noreply 身份，不改全局 Git 身份。已配置 CI 与 Dependabot，但未建立远程仓库，远端 CI 尚未运行。GitHub CLI 与 Codex 连接独立授权，本机 CLI 尚未登录，上传时再处理。
+提交使用 GitHub noreply 身份，不改全局 Git 身份。已配置 CI 与 Dependabot；本地完整检查命令与 CI 保持一致，包含 203 项后端测试与 3 组前端日期测试。GitHub CLI 与 Codex 连接独立授权，命令行上传需要本机 GitHub 登录。远端工作流结果以仓库 Actions 页面为准。
 
 已在 macOS Apple Silicon 验证；Windows / Linux 独立机器安装、正式开源许可证与安装包仍待后续验收。

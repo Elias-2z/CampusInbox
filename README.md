@@ -22,6 +22,19 @@
 
 尚未实现 OCR、日历自动同步、系统提醒推送、微信 / QQ / 学习通自动同步、云端模型、自动任务合并、备份恢复和安装包。未连接任何第三方校园账号。
 
+## 界面预览
+
+截图使用合成测试数据，仓库不包含个人通知或本地数据库。
+
+![截止日历与当天安排](docs/images/calendar.png)
+
+<details>
+<summary>查看站内提醒界面</summary>
+
+![站内截止提醒](docs/images/reminders.png)
+
+</details>
+
 ## 快速开始
 
 准备 Git、uv 和 Node.js 24 LTS，在仓库根目录执行：
@@ -137,4 +150,6 @@ benchmarks/  后续模型效果评测
 .github/     CI、Dependabot、Issue / PR 模板
 ```
 
-当前仅保存在本地 Git；未创建远程仓库或上传 GitHub。正式公开前仍需选择开源 LICENSE，并在一台未参与开发的电脑上完成安装验收。
+项目目前处于早期开发阶段，已在 macOS Apple Silicon 验证。Windows / Linux 独立机器安装、完整模型准确率评测和安装包仍待后续验收。
+
+许可证尚未确定，当前没有添加 LICENSE。请在报告问题或提交改动时使用合成 / 脱敏示例，避免提交真实通知、账户信息或凭据。
