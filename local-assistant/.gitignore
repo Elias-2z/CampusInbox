@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+data/
+.env
+.superpowers/
+android/.gradle/
+android/local.properties
+android/**/build/
+artifacts/
+
+.venv/
+
+desktop-sync/node_modules/
+desktop-app/.build/
+
+frontend/node_modules/
+frontend/*.tsbuildinfo
+
+# Build with npm --prefix frontend run build before first start.
+web/ui/

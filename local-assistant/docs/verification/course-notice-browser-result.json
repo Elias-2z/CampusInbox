@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "journeys": [
+    "disabled capture",
+    "observed notification DOM",
+    "native detail identity",
+    "offline notice queue",
+    "instruction DOCX and table",
+    "source timestamp",
+    "pending draft only",
+    "replay deduplication",
+    "desktop sync page",
+    "attachment detail display",
+    "more than 25 notices",
+    "rendered list periodic refresh"
+  ],
+  "details": 2,
+  "listScans": 2,
+  "renderedRefreshes": 1,
+  "consoleErrors": []
+}

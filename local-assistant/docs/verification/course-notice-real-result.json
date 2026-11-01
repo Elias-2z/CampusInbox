@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "method": "Observed logged-in DOM + user-browser downloaded DOCX; local scoped API one-shot import. Extension not installed.",
+  "notice_message_id": "4951c2f3defe4175b3f9213ac92c38ea",
+  "proposal_id": "2ab5b80d4cf44f5aa7e8b5e3e3325d41",
+  "posted_at": "2026-10-08T12:06:00+08:00",
+  "docx_bytes": 32090,
+  "extracted_characters": 664,
+  "attachment_statuses": [
+    "extracted",
+    "skipped",
+    "skipped",
+    "skipped"
+  ],
+  "first_status": 201,
+  "replay_status": 200,
+  "tasks": 4,
+  "messages": 17,
+  "pending": 8,
+  "original_tasks_unchanged": true,
+  "original_messages_retained": true,
+  "pairing_settings_unchanged": true,
+  "requirements": [
+    "阅读通知中列出的材料",
+    "为第二次课的主题研讨做好准备",
+    "查看附件，确认具体要求",
+    "组内分配，每人只读一篇材料",
+    "只读附件指定页码，无需通读全文",
+    "① 中国信通院《 AI4SE 行业现状调查报告（ 2026 年）》：第 7 、 9 、 10 、 14 、 26 、 34 页",
+    "② Watanabe 等《 On the Use of Agentic Coding 》：第 1 、 6 、 7 、 9 、 11 、 16 、 18 、 20 页",
+    "③ METR 《 Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity 》：第 1 、 8 、 10 、 11 、 12 页"
+  ],
+  "deadline": "2026-10-09",
+  "warnings": [
+    "原文要求上课前完成；具体上课时间未给出，请核对课表。",
+    "课前任务请核对课次与要求，确认后添加。"
+  ]
+}

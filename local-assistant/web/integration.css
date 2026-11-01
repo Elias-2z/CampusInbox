@@ -1,0 +1,242 @@
+/* Same-origin full workflow surfaces, styled to match the integrated Vue shell. */
+.ci-embedded{background:var(--bg);color:var(--ink)}
+.ci-embedded .sidebar,.ci-embedded .topbar{display:none!important}
+.ci-embedded .app-shell{margin:0;min-height:0}
+.ci-embedded main{padding:0;max-width:none;width:100%}
+.ci-embedded .page-intro{display:none}
+.ci-embedded .panel,.ci-embedded .proposal-card,.ci-embedded .message-card{border-radius:20px;box-shadow:none}
+.ci-embedded .button{border-radius:12px;padding:10px 15px}
+.ci-embedded .button.primary{background:#7045e8;border-color:#7045e8}
+.ci-embedded .button.primary:hover{background:#5b33cb}
+.ci-embedded input,.ci-embedded textarea,.ci-embedded select{border-radius:10px}
+.ci-embedded input:focus,.ci-embedded textarea:focus,.ci-embedded select:focus{outline-color:#7045e8}
+.ci-embedded .pill.green{color:#5b33cb;background:#eee8ff}
+.ci-embedded h2{font-size:19px;font-weight:750}
+.ci-embedded .toast{bottom:15px;left:50%;max-width:calc(100% - 24px);transform:translateX(-50%)}
+.ci-embed-panel{min-height:100vh}
+.ci-embed-panel #content{display:none}
+.ci-embed-panel dialog[open]:not(.status-confirm-dialog){position:fixed;inset:0;width:100%;max-width:none;max-height:100%;height:100%;margin:0;border:0;border-radius:0;padding:24px;box-sizing:border-box}
+.ci-embed-panel :is(#messageDialog,#taskDialog,#assistantDialog)[open]{width:100%;border:0;border-radius:0}
+.ci-embed-panel .dialog:not(#taskDialog):not(.status-confirm-dialog)>.dialog-heading{top:-24px;margin:-24px -24px 22px;padding:24px 24px 18px}
+@media(max-width:650px){.ci-embedded main{padding:0}.ci-embedded .app-shell{margin:0}.ci-embed-panel dialog[open]:not(.status-confirm-dialog){padding:16px}.ci-embed-panel .dialog:not(#taskDialog):not(.status-confirm-dialog)>.dialog-heading{top:-16px;margin:-16px -16px 20px;padding:20px 16px 16px}}
+.material-progress{margin:16px 0}.material-progress h3{margin-bottom:10px}.material-check{display:flex;align-items:center;gap:10px;padding:8px 0}.material-check input{accent-color:#7045e8}
+
+/* Reference: Elias-2z/CampusInbox frontend/src/styles/campus.css.
+   Keep legacy workflow geometry, but share the Vue shell's visual language. */
+.ci-workspace {
+  --ci-paper: #faf9f5;
+  --ci-surface: #fff;
+  --ci-ink: #272137;
+  --ci-muted: #716b7d;
+  --ci-line: #e9e5ed;
+  --ci-accent: #7045e8;
+  --ci-soft: #eee8ff;
+  --ci-yellow: #fff0b8;
+  --ci-pink: #ffe4e7;
+  --ci-lime: #d8f36a;
+  --ci-radius: 22px;
+  --bg: var(--ci-paper);
+  --paper: var(--ci-surface);
+  --ink: var(--ci-ink);
+  --muted: var(--ci-muted);
+  --border: var(--ci-line);
+  --green: var(--ci-accent);
+  --soft-green: var(--ci-soft);
+  --soft-amber: var(--ci-yellow);
+  --amber: #795619;
+  --red: #ad4059;
+  --soft-red: var(--ci-pink);
+  --radius: var(--ci-radius);
+  color-scheme: light;
+  font-family: Inter, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--ci-paper);
+  color: var(--ci-ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ci-workspace :is(button, input, select, textarea) { font-family: inherit; }
+.ci-workspace :is(h1, h2, h3) { color: var(--ci-ink); letter-spacing: -.3px; }
+.ci-workspace :is(.helper, .source-line, .message-times, .date-block strong, .sync-label, .sidebar-bottom p) { color: var(--ci-muted); font-size: 12px; }
+.ci-workspace :is(.panel, .proposal-card, .message-card, .inventory-task) {
+  background: var(--ci-surface);
+  border-color: var(--ci-line);
+  border-radius: var(--ci-radius);
+  box-shadow: none;
+}
+.ci-workspace :is(.panel, .proposal-card, .message-card) { padding: 24px; }
+.ci-workspace .button {
+  background: var(--ci-surface);
+  border: 1px solid var(--ci-line);
+  border-radius: 12px;
+  min-height: 40px;
+  padding: 9px 15px;
+  color: var(--ci-ink);
+  font-weight: 650;
+  box-shadow: none;
+}
+.ci-workspace .button:hover:not(:disabled) { background: var(--ci-soft); border-color: #d7cbf7; color: var(--ci-accent); }
+.ci-workspace .button.primary { background: var(--ci-accent); border-color: transparent; color: #fff; box-shadow: none; }
+.ci-workspace .button.primary:hover:not(:disabled) { background: #5b33cb; color: #fff; }
+.ci-workspace .button.small { padding: 7px 12px; min-height: 34px; font-size: 12px; }
+.ci-workspace .button.subtle { color: var(--ci-muted); }
+.ci-workspace .text-button { color: var(--ci-accent); font-size: 12px; }
+.ci-workspace :is(.toolbar input, .toolbar select, .field input, .field select, .field textarea, .pair-input, .task-status) {
+  background: var(--ci-paper);
+  color: var(--ci-ink);
+  border-color: var(--ci-line);
+  border-radius: 10px;
+}
+.ci-workspace .field { color: var(--ci-ink); font-size: 13px; }
+.ci-workspace :is(input, textarea)::placeholder { color: var(--ci-muted); }
+.ci-workspace :is(input, textarea, select, button, a):focus-visible { outline: 3px solid var(--ci-accent); outline-offset: 3px; }
+.ci-workspace :is(input, progress) { accent-color: var(--ci-accent); }
+.ci-workspace .section-tabs { background: var(--ci-soft); border-color: var(--ci-line); border-radius: 16px; padding: 6px; gap: 6px; }
+.ci-workspace .section-tab { color: var(--ci-muted); border-radius: 12px; font-size: 13px; }
+.ci-workspace .section-tab.active { background: var(--ci-surface); color: var(--ci-accent); box-shadow: 0 2px 6px #27213708; font-weight: 700; }
+.ci-workspace .section-tab:hover:not(.active) { background: #ffffff80; color: var(--ci-accent); }
+.ci-workspace .pill { background: var(--ci-paper); border-color: var(--ci-line); color: var(--ci-muted); border-radius: 7px; }
+.ci-workspace .pill.green { background: var(--ci-soft); color: #6341ad; border-color: transparent; }
+.ci-workspace .pill.amber { background: var(--ci-yellow); color: #795619; border-color: transparent; }
+.ci-workspace .pill.red { background: var(--ci-pink); color: #ad4059; border-color: transparent; }
+.ci-workspace .pill.outline { background: var(--ci-surface); border-color: var(--ci-line); color: var(--ci-muted); }
+.ci-workspace :is(.warning, .connection-warning) { background: #fff7d9; color: #795619; border-color: #f0e3b9; border-radius: 14px; }
+.ci-workspace .error-text { color: #ad4059; }
+.ci-workspace :is(.evidence, .eval-task-editor) { border-color: var(--ci-line); border-radius: 12px; }
+.ci-workspace :is(.evidence summary, .sync-options summary, .sync-diagnostics summary, .connection-option summary, .connection-options summary) { color: var(--ci-muted); }
+.ci-workspace :is(.evidence pre, .message-card pre, .message-detail-text, .eval-original) {
+  background: var(--ci-paper);
+  color: var(--ci-ink);
+  border-color: var(--ci-line);
+  border-radius: 12px;
+  font-family: inherit;
+  line-height: 1.85;
+}
+.ci-workspace :is(.empty-state, .inventory-empty) { background: var(--ci-surface); border-color: var(--ci-line); border-radius: var(--ci-radius); }
+.ci-workspace :is(.empty-state .empty-icon, .empty-icon) { color: var(--ci-accent); }
+.ci-workspace :is(.model-notice, .model-agent, .connection-state, .platform-check, .answer-panel) {
+  background: var(--ci-soft);
+  border-color: var(--ci-line);
+  color: #6341ad;
+  border-radius: 14px;
+}
+.ci-workspace .model-notice code { color: var(--ci-accent); background: var(--ci-surface); }
+.ci-workspace :is(.file-zone, .dialog .file-zone) { background: var(--ci-paper); border-color: #cbb8f7; border-radius: 16px; }
+.ci-workspace :is(.file-zone strong, .dialog .file-zone strong, .file-icon) { color: var(--ci-accent); }
+.ci-workspace .file-zone span:last-of-type { color: var(--ci-muted); }
+.ci-workspace .message-detail-meta dt { color: var(--ci-muted); }
+.ci-workspace .message-detail-meta dd { color: var(--ci-ink); }
+.ci-workspace :is(.message-section h3, .detail-history strong, .message-heading strong) { color: var(--ci-ink); }
+.ci-workspace .detail-history { color: var(--ci-muted); border-color: var(--ci-line); }
+.ci-workspace :is(.dialog, #taskDialog, #messageDialog, #assistantDialog) {
+  font-family: inherit;
+  background: var(--ci-surface);
+  color: var(--ci-ink);
+  border-color: var(--ci-line);
+  box-shadow: 0 24px 80px #27213726;
+}
+.ci-workspace .dialog::backdrop { background: #1c123e80; backdrop-filter: blur(4px); }
+.ci-workspace :is(#importDialog, #messageDialog, #supplementDialog, #assistantDialog, #statusConfirmDialog, #cleanupDialog, #authDialog, #taskDialog) > .dialog-heading {
+  background: var(--ci-surface);
+  border-color: var(--ci-line);
+}
+.ci-workspace :is(#importDialog, #messageDialog, #supplementDialog, #assistantDialog, #statusConfirmDialog, #cleanupDialog, #authDialog, #taskDialog) .dialog-heading h2 { color: var(--ci-ink); font-weight: 750; }
+.ci-workspace :is(#importDialog, #messageDialog, #supplementDialog, #assistantDialog, #statusConfirmDialog, #taskDialog) .close-button {
+  background: var(--ci-surface);
+  color: var(--ci-muted);
+  border-color: var(--ci-line);
+  box-shadow: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+}
+.ci-workspace :is(#importDialog, #messageDialog, #supplementDialog, #assistantDialog, #statusConfirmDialog, #taskDialog) .close-button:hover { background: var(--ci-soft); border-color: #d7cbf7; color: var(--ci-accent); }
+.ci-workspace #messageDetail :is(.message-read-status, .message-attachment) { background: var(--ci-paper); border-color: var(--ci-line); border-radius: 14px; color: var(--ci-ink); }
+.ci-workspace #messageDetail .message-read-status { background: var(--ci-soft); }
+.ci-workspace #messageDetail .message-read-status strong { color: var(--ci-accent); }
+.ci-workspace #messageDetail .message-read-status.needs-review { background: #fff7d9; color: #795619; border-color: #f0e3b9; }
+.ci-workspace #taskDetail { scrollbar-color: #d4cede transparent; }
+.ci-workspace #taskDetail :is(h3, .task-requirements) { color: var(--ci-ink); }
+.ci-workspace #taskDetail .task-requirements { background: var(--ci-paper); border-color: var(--ci-line); border-radius: 12px; }
+.ci-workspace #taskDetail .due-meta { color: var(--ci-ink); background: var(--ci-soft); border: 1px solid var(--ci-line); border-radius: 14px; padding: 14px 18px; font-size: 16px; }
+.ci-workspace #taskDetail .published-meta { color: var(--ci-muted); }
+.ci-workspace #taskDetail .platform-check { background: var(--ci-soft); border-color: var(--ci-line); color: #6341ad; }
+.ci-workspace #taskDetail > .field { color: var(--ci-ink); }
+.ci-workspace #taskDetail #detailStatus { background: var(--ci-paper); border-color: var(--ci-line); color: var(--ci-ink); }
+.ci-workspace #taskDetail #detailStatus.is-overdue { color: #ad4059; background: var(--ci-pink); }
+.ci-workspace #taskDetail > .evidence { color: var(--ci-muted); border-color: var(--ci-line); }
+.ci-workspace #taskDetail > .evidence[open] summary { color: var(--ci-accent); }
+.ci-workspace #assistantDialog :is(.assistant-examples, .answer-panel) { background: var(--ci-paper); border-color: var(--ci-line); color: var(--ci-ink); }
+.ci-workspace #assistantDialog #assistantMode { color: var(--ci-muted); }
+.ci-workspace #content :is(.proposal-heading, .proposal-actions, .connect-heading, .inventory-task, .sync-diagnostics, .message-tools, .connection-options-body) { border-color: var(--ci-line); }
+.ci-workspace #content :is(.proposal-heading h3, .message-heading strong, .inventory-task strong, #taskInventory > h2) { color: var(--ci-ink); }
+.ci-workspace #content .proposal-heading h3 { font-size: 18px; font-weight: 750; }
+.ci-workspace #content :is(.source-line, .message-times, #desktopLatest, #taskInventorySummary) { color: var(--ci-muted); font-size: 12px; }
+.ci-workspace #content .message-card pre { background: var(--ci-paper); border-color: var(--ci-line); color: var(--ci-ink); }
+.ci-workspace #content :is(.message-tools, .connection-options-body) { background: var(--ci-surface); border-radius: 14px; }
+.ci-workspace #content :is(#desktopState, .sync-overview strong) { color: var(--ci-ink); }
+.ci-workspace #content .connect-number { background: var(--ci-soft); border-color: var(--ci-line); color: var(--ci-accent); border-radius: 12px; }
+.ci-workspace #content .sync-overview > div { background: var(--ci-paper); border-color: var(--ci-line); border-radius: 14px; }
+.ci-workspace #content :is(#desktopOptions, #taskInventory, #taskInventory > details) { background: var(--ci-surface); border-color: var(--ci-line); border-radius: 16px; }
+.ci-workspace #content :is(#desktopOptions > summary, .sync-diagnostics, .connection-options > summary) { color: var(--ci-muted); }
+.ci-workspace #content .inventory-task { background: var(--ci-paper); border-color: var(--ci-line); border-radius: 14px; }
+.ci-workspace #content .eval-message-pick { border-color: var(--ci-line); color: var(--ci-ink); border-radius: 12px; }
+.ci-workspace #content .eval-message-pick.selected { background: var(--ci-soft); color: var(--ci-accent); }
+.ci-workspace #content .eval-message-pick:hover { background: var(--ci-paper); }
+.ci-workspace :is(.eval-bar-track, .eval-original) { fill: var(--ci-paper); background: var(--ci-paper); }
+.ci-workspace .eval-bar-precision { fill: var(--ci-accent); background: var(--ci-accent); }
+.ci-workspace .eval-bar-recall { fill: #a18acb; background: #a18acb; }
+.ci-workspace .eval-bar-deadline { fill: #c59632; background: #c59632; }
+.ci-workspace .eval-result-note { background: #fff7d9; color: #795619; border-color: #f0e3b9; border-radius: 12px; }
+.ci-workspace .sidebar { background: var(--ci-surface); border-color: var(--ci-line); }
+.ci-workspace .brand-symbol { background: var(--ci-accent); }
+.ci-workspace .brand-symbol span { color: var(--ci-lime); }
+.ci-workspace .sidebar .nav-item.active { background: var(--ci-soft); color: var(--ci-accent); }
+.ci-workspace .sidebar .nav-item.active .nav-badge { background: var(--ci-accent); color: #fff; }
+.ci-workspace .topbar { background: var(--ci-surface); border-color: var(--ci-line); }
+.ci-workspace #content .page-intro h1 { color: var(--ci-ink); }
+.ci-workspace #content .text-button { color: var(--ci-accent); }
+.ci-workspace #content .section-tabs { background: var(--ci-soft); border-color: var(--ci-line); border-radius: 16px; }
+.ci-workspace #content .section-tab { color: var(--ci-muted); border-radius: 12px; }
+.ci-workspace #content .section-tab.active { background: var(--ci-surface); color: var(--ci-accent); box-shadow: 0 2px 6px #27213708; }
+.ci-workspace #content .section-tab:hover:not(.active) { background: #ffffff80; color: var(--ci-accent); }
+.ci-workspace #content .desktop-sync-panel { background: var(--ci-surface); border-color: var(--ci-line); border-radius: var(--ci-radius); box-shadow: none; }
+.ci-workspace #content #taskInventory { border-radius: var(--ci-radius); box-shadow: none; }
+.ci-workspace #content #taskInventorySummary { background: var(--ci-soft); color: #6341ad; border-color: var(--ci-line); border-radius: 14px; }
+.ci-workspace #content :is(.inventory-empty, .inventory-empty p, .inventory-empty strong) { color: var(--ci-muted); }
+.ci-workspace #content :is(.inventory-repair-status, .sync-diagnostics) { background: var(--ci-paper); border-color: var(--ci-line); color: var(--ci-muted); }
+.ci-workspace #content #taskInventory > details { color: var(--ci-muted); }
+.ci-workspace #content .connect-heading .helper { color: var(--ci-muted); }
+.ci-workspace :is(.task-row, .calendar, .calendar-toolbar, .deadline-query) { background: var(--ci-surface); border-color: var(--ci-line); border-radius: 18px; box-shadow: none; }
+.ci-workspace :is(.task-results, .task-results > span:first-child, .task-platform-status, .date-range-separator) { color: var(--ci-muted); }
+.ci-workspace .tasks-page .task-row :is(h3, .task-due p) { color: var(--ci-ink); }
+.ci-workspace .tasks-page .task-row > [data-detail] { background: var(--ci-soft); color: var(--ci-accent); border-color: var(--ci-line); }
+.ci-workspace #content[data-page="calendar"] :is(.calendar, .calendar-toolbar) { background: var(--ci-surface); border-color: var(--ci-line); box-shadow: none; }
+.ci-workspace #content[data-page="calendar"] :is(.calendar-controls h2, .calendar-task) { color: var(--ci-ink); }
+.ci-workspace #content[data-page="calendar"] .weekday { background: var(--ci-paper); color: var(--ci-muted); }
+.ci-workspace #content[data-page="calendar"] .day { border-color: var(--ci-line); }
+.ci-workspace #content[data-page="calendar"] .day.today { background: var(--ci-soft); box-shadow: inset 0 0 0 1px #d7cbf7; }
+.ci-workspace #content[data-page="calendar"] .day.other-month { background: var(--ci-paper); }
+.ci-workspace .evidence > p { color: var(--ci-muted); }
+.ci-workspace .change-box { background: var(--ci-soft); color: var(--ci-ink); border-color: var(--ci-line); border-radius: 12px; }
+.ci-workspace .change-box .old { color: var(--ci-muted); }
+.ci-workspace #content :is(.step-list, #desktopSources, #desktopCounts, .sync-overview span) { color: var(--ci-muted); }
+.ci-workspace #content #desktopSources { background: var(--ci-paper); border-color: var(--ci-line); }
+.ci-workspace #content #wechatPush { background: var(--ci-surface); border-color: var(--ci-line); border-radius: var(--ci-radius); box-shadow: none; }
+.ci-workspace #content #wechatPush > h2 { color: var(--ci-ink); }
+.ci-workspace #content #wechatPushStatus { background: var(--ci-soft); color: #6341ad; border-radius: 12px; }
+.ci-workspace #content :is(.mobile-reminders, .browser-reminder-options) { background: var(--ci-surface); border-color: var(--ci-line); border-radius: var(--ci-radius); }
+.ci-workspace #content :is(.reminder-heading, .reminder-device-heading, .reminder-setup > div, .browser-reminder-options[open] > summary) { border-color: var(--ci-line); }
+.ci-workspace #content .reminder-setup > div { background: var(--ci-paper); border-radius: 14px; }
+.ci-workspace #content :is(.reminder-heading h2, .reminder-setup h3) { color: var(--ci-ink); }
+.ci-workspace #content .reminder-code { background: var(--ci-surface); border-color: var(--ci-line); border-radius: 12px; color: var(--ci-accent); }
+.ci-workspace #content .browser-reminder-options > summary { color: var(--ci-muted); }
+.ci-workspace .today-page .hero { background: var(--ci-accent); border-color: transparent; border-radius: var(--ci-radius); box-shadow: none; }
+.ci-workspace .today-page .hero :is(h2, p) { color: #fff; }
+.ci-workspace .today-page .stat { background: var(--ci-surface); border-color: var(--ci-line); border-radius: 18px; box-shadow: none; }
+.ci-workspace .today-page .stat:before { background: var(--ci-accent); }
+@media(max-width:650px) {
+  .ci-workspace :is(.panel, .proposal-card, .message-card) { padding: 18px; }
+  .ci-workspace #content .proposal-heading h3 { font-size: 16px; }
+  .ci-workspace .section-tab { padding: 9px 12px; font-size: 12px; }
+  .ci-workspace #taskDetail .due-meta { padding: 12px 14px; font-size: 14px; }
+}

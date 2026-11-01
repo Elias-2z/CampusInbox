@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "data": "isolated sanitized fixtures; simulated QR confirmation; no real account",
+  "journeys": [
+    "official QR element displayed inside app",
+    "dedicated headless worker",
+    "Windows DPAPI session encryption",
+    "notice with DOCX instruction",
+    "draft-only intake",
+    "periodic notice intake with frontend closed",
+    "pause stops capture and hides QR",
+    "new worker restores encrypted session",
+    "message source counts",
+    "account logout preserves evidence",
+    "stable notice deduplication",
+    "no frontend console errors",
+    "QR in official child frame",
+    "three consecutive list network failures",
+    "automatic recovery without a new QR scan",
+    "detail navigation retried",
+    "retry button reuses encrypted session"
+  ],
+  "messages": 2,
+  "tasks": 0,
+  "transientRecovery": true,
+  "consoleErrors": []
+}
