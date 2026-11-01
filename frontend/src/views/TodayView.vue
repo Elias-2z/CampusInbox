@@ -50,13 +50,7 @@ const total = computed(
       </div>
       <h1>嗨，同学！开个好头 ✌️</h1>
     </div>
-    <button
-      class="ci-btn ci-primary cursor-interaction"
-      :disabled="!store.ready"
-      @click="store.importing = true"
-    >
-      ＋ 导入通知
-    </button>
+    <RouterLink class="ci-btn ci-primary cursor-interaction" to="/tasks">前往我的任务 ↗</RouterLink>
   </div>
   <section class="ci-hero">
     <div>
@@ -86,11 +80,11 @@ const total = computed(
       <div v-else class="ci-first">
         <span class="ci-firstemoji">🌱</span>
         <h2>你的校园清单，从这里生长</h2>
-        <p>粘贴一条老师的通知，核对后就能变成任务。</p>
+        <p>在“我的任务”中新建，粘贴通知、上传附件或直接填写都可以。</p>
         <div class="ci-actions">
-          <button class="ci-btn ci-primary cursor-interaction" @click="store.importing = true">
-            导入第一条通知 →</button
-          ><button class="ci-btn cursor-interaction" @click="store.edit()">手动记一件事</button>
+          <RouterLink class="ci-btn ci-primary cursor-interaction" to="/tasks"
+            >前往我的任务 →</RouterLink
+          >
         </div>
       </div>
       <div v-if="total" class="ci-donebar">
