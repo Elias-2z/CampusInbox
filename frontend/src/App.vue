@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useCampus } from '@/stores/campus'
-import ImportModal from '@/components/ImportModal.vue'
+import NewTaskModal from '@/components/NewTaskModal.vue'
 import TaskEditor from '@/components/TaskEditor.vue'
 const store = useCampus()
 let timer: number | undefined
@@ -85,7 +85,7 @@ onUnmounted(() => {
     <footer class="ci-footer">
       <span>✳ 让分散的校园信息，变成可执行任务。</span><span>本地保存 · 确认后创建</span>
     </footer>
-    <ImportModal v-if="store.importing" /><TaskEditor v-if="store.editorOpen" />
+    <NewTaskModal v-if="store.importing" /><TaskEditor v-if="store.editorOpen" />
     <div v-if="store.celebration" class="ci-celebration" aria-hidden="true">
       <span
         v-for="(emoji, index) in ['✨', '🎉', '🌟', '💜', '✳️']"

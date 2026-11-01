@@ -144,6 +144,11 @@ export const useCampus = defineStore('campus', () => {
     if (action) await mutate(action, '已恢复到上一步，操作记录已保留。')
   }
   function edit(task: Task | null = null) {
+    error.value = ''
+    if (!task) {
+      importing.value = true
+      return
+    }
     editorTask.value = task
     editorOpen.value = true
   }

@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import event
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from campus_inbox.models import ModelSettings, ReminderSettings, Suggestion, now
+from campus_inbox.models import Attachment, ModelSettings, ReminderSettings, Suggestion, now
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = BACKEND_ROOT / "data" / "campus-inbox.db"
@@ -44,6 +44,12 @@ def initialize(engine) -> None:
             suggestion.warnings = [*suggestion.warnings, "上次识别被中断，可重新识别或手动填写。"]
             suggestion.updated_at = now()
             session.add(suggestion)
+        for attachment in session.exec(
+            select(Attachment).where(Attachment.status == "parsing", Attachment.batch_id == "")
+        ):
+            attachment.status = "failed"
+            attachment.error = "上次上传被中断，原文件已保留，可以重新解析。"
+            session.add(attachment)
         session.commit()
 
 

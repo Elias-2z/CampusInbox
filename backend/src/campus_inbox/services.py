@@ -23,6 +23,7 @@ from campus_inbox.extraction import (
     numbered_parts,
 )
 from campus_inbox.models import (
+    Attachment,
     CancellationChange,
     DeadlineChange,
     DeadlineProposal,
@@ -39,6 +40,7 @@ from campus_inbox.models import (
 from campus_inbox.providers import ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
+    AttachmentInfo,
     EventRead,
     ImportMessage,
     InboxItem,
@@ -68,6 +70,17 @@ def config(session: Session) -> LocalModelConfig:
     return (
         LocalModelConfig(**settings.model_dump(exclude={"id"})) if settings else LocalModelConfig()
     )
+
+
+def message_read(session: Session, message: Message) -> MessageRead:
+    result = MessageRead.model_validate(message)
+    result.attachments = [
+        AttachmentInfo.model_validate(attachment)
+        for attachment in session.exec(
+            select(Attachment).where(Attachment.message_id == message.id)
+        )
+    ]
+    return result
 
 
 def normalized(value: str) -> str:
@@ -150,7 +163,7 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         fields=suggestion.fields,
         evidence=suggestion.evidence,
         warnings=warnings,
-        message=MessageRead.model_validate(message),
+        message=message_read(session, message),
         matched_tasks=[
             TaskRead.model_validate(t) for t in matching_tasks(session, suggestion.fields)
         ],
@@ -230,6 +243,16 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
 
 
 def import_message(session: Session, body: ImportMessage, provider_factory) -> Suggestion:
+    attachment = None
+    if body.attachment_id:
+        attachment = get_or_404(session, Attachment, body.attachment_id)
+        if attachment.status != "ready":
+            raise HTTPException(409, "文件尚未解析完成，请先核对提取文本。")
+        if attachment.message_id:
+            # Repeated submission of a corrected OCR draft must not create another notice.
+            return session.exec(
+                select(Suggestion).where(Suggestion.message_id == attachment.message_id)
+            ).one()
     day = body.sent_at.astimezone(ZoneInfo(body.timezone)).date().isoformat()
     key = hashlib.sha256(
         json.dumps(
@@ -239,6 +262,10 @@ def import_message(session: Session, body: ImportMessage, provider_factory) -> S
     ).hexdigest()
     existing = session.exec(select(Message).where(Message.dedupe_key == key)).first()
     if existing:
+        if attachment:
+            attachment.message_id = existing.id
+            session.add(attachment)
+            session.commit()
         return session.exec(select(Suggestion).where(Suggestion.message_id == existing.id)).one()
     message = Message(
         text=body.text,
@@ -251,10 +278,21 @@ def import_message(session: Session, body: ImportMessage, provider_factory) -> S
     session.add(message)
     session.add(suggestion)
     try:
+        if attachment:
+            # Persist the parent row before updating an existing attachment's foreign key.
+            session.flush()
+            attachment.message_id = message.id
+            session.add(attachment)
         session.commit()
     except IntegrityError:
         session.rollback()
-        existing = session.exec(select(Message).where(Message.dedupe_key == key)).one()
+        existing = session.exec(select(Message).where(Message.dedupe_key == key)).first()
+        if existing is None:
+            raise
+        if attachment:
+            attachment.message_id = existing.id
+            session.add(attachment)
+            session.commit()
         return session.exec(select(Suggestion).where(Suggestion.message_id == existing.id)).one()
     session.refresh(suggestion)
     return analyze(session, suggestion, provider_factory)
@@ -445,7 +483,7 @@ def detail(session: Session, task: Task) -> TaskDetail:
                 else:
                     evidence[key] = value
     source_ids = list(dict.fromkeys([task.message_id, *[event.message_id for event in events]]))
-    sources = [MessageRead.model_validate(get_or_404(session, Message, mid)) for mid in source_ids]
+    sources = [message_read(session, get_or_404(session, Message, mid)) for mid in source_ids]
     return TaskDetail(
         task=TaskRead.model_validate(task),
         source=sources[0],

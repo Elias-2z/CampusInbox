@@ -148,13 +148,6 @@ const methodName = (method: string) =>
       <div class="ci-eyebrow">A LITTLE SORTING, A LOT OF CLARITY</div>
       <h1>你的信息中转站 📮</h1>
     </div>
-    <button
-      class="ci-btn ci-primary cursor-interaction"
-      :disabled="!store.ready"
-      @click="store.importing = true"
-    >
-      ＋ 导入通知
-    </button>
   </div>
   <div class="ci-filters" aria-label="收件箱状态">
     <button
@@ -170,10 +163,8 @@ const methodName = (method: string) =>
   <div v-if="store.ready && !items.length" class="ci-first">
     <span class="ci-firstemoji">{{ tab === 'pending' ? '🎉' : '📭' }}</span>
     <h2>{{ tab === 'pending' ? '暂时没有待处理通知' : '这里还没有记录' }}</h2>
-    <p>导入一条通知，原文会先保存在这里。</p>
-    <button class="ci-btn ci-primary cursor-interaction" @click="store.importing = true">
-      导入通知 →
-    </button>
+    <p>这里集中审核识别结果。需要添加内容时，请到“我的任务”中选择“新建任务”。</p>
+    <RouterLink class="ci-btn ci-primary cursor-interaction" to="/tasks">前往我的任务 →</RouterLink>
   </div>
   <div v-else-if="selected" class="ci-inboxlayout">
     <aside class="ci-messagelist" aria-label="通知列表">
@@ -223,6 +214,13 @@ const methodName = (method: string) =>
       <section class="ci-source">
         <div class="ci-sourcehead">📌 原始通知</div>
         <p class="ci-quote">{{ selected.message.text }}</p>
+        <a
+          v-for="attachment in selected.message.attachments"
+          :key="attachment.id"
+          class="ci-attachmentlink"
+          :href="`/api/attachments/${attachment.id}/download`"
+          >📎 下载原始附件：{{ attachment.filename }}</a
+        >
         <div class="ci-sourcefoot">
           {{ selected.message.source }}<br />发送于 {{ displayDate(selected.message.sent_at, true)
           }}<br />消息时区：{{ selected.message.timezone }}<br />{{ methodName(selected.method) }}
@@ -408,9 +406,9 @@ const methodName = (method: string) =>
               @click="store.ignore(selected)"
             >
               忽略这条建议</button
-            ><button class="ci-btn ci-text cursor-interaction" @click="store.edit()">
-              手动新建任务
-            </button>
+            ><RouterLink class="ci-btn ci-text cursor-interaction" to="/tasks">
+              前往我的任务
+            </RouterLink>
           </div>
           <div class="ci-actions ci-review-footer">
             <button
