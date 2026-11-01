@@ -38,6 +38,18 @@ class Suggestion(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=now)
 
 
+class Attachment(SQLModel, table=True):
+    id: str = Field(default_factory=uid, primary_key=True)
+    filename: str
+    size: int
+    status: str = "parsing"
+    text: str = ""
+    error: str = ""
+    batch_id: str = ""
+    message_id: str | None = Field(default=None, foreign_key="message.id", index=True)
+    created_at: datetime = Field(default_factory=now)
+
+
 class Task(SQLModel, table=True):
     id: str = Field(default_factory=uid, primary_key=True)
     suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
