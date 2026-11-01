@@ -116,8 +116,11 @@ async function save() {
       </div>
     </form>
     <aside class="ci-source">
-      <h3>🔒 信息留在本机</h3>
-      <p class="ci-notice ci-before">第一版只接受本机 Ollama 地址。不会自动把通知发送到云端。</p>
+      <h3>🔒 本地识别与文件解析</h3>
+      <p class="ci-notice ci-before">
+        任务字段识别只使用本机 Ollama。图片和文档在你确认后发送到 MinerU 云端解析；文本粘贴和 TXT /
+        Markdown 提取在本机处理。
+      </p>
       <h3>📌 先审核，再入库</h3>
       <p class="ci-notice ci-before">
         所有任务创建都需要你确认。模型不可用时，原文仍会保存，你可以手动补充字段。
@@ -125,7 +128,8 @@ async function save() {
       <h3>🗃️ 本地保存</h3>
       <p class="ci-notice">
         任务、来源与历史会在刷新和重启后保留。站内截止提醒和周 /
-        月日历已可使用；备份恢复、OCR、日历自动同步和平台连接将在后续阶段提供。
+        月日历已可使用。图片与文档可从“我的任务 →
+        新建任务”上传；备份恢复、日历自动同步和平台连接将在后续阶段提供。
       </p>
     </aside>
   </div>

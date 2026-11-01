@@ -11,8 +11,18 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from campus_inbox import calendar, cancellations, deadlines, merging, reminders, services, splitting
+from campus_inbox import (
+    attachments,
+    calendar,
+    cancellations,
+    deadlines,
+    merging,
+    reminders,
+    services,
+    splitting,
+)
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
+from campus_inbox.mineru import MinerUProvider
 from campus_inbox.models import ModelSettings, ReminderSettings, SplitDraft, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
@@ -61,7 +71,10 @@ WriteDB = Annotated[Session, Depends(get_write_session)]
 
 
 def create_app(
-    db_path: Path | None = None, provider_factory=OllamaProvider, reminder_clock=now
+    db_path: Path | None = None,
+    provider_factory=OllamaProvider,
+    reminder_clock=now,
+    mineru_factory=MinerUProvider,
 ) -> FastAPI:
     engine = make_engine(db_path or Path(os.environ.get("CAMPUSINBOX_DB_PATH", str(DEFAULT_DB))))
 
@@ -73,6 +86,7 @@ def create_app(
 
     application = FastAPI(title="CampusInbox API", version="0.1.0", lifespan=lifespan)
     application.state.engine = engine
+    application.include_router(attachments.router(engine, mineru_factory))
 
     @application.get("/api/health", tags=["system"])
     def health() -> dict[str, str]:

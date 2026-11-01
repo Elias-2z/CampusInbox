@@ -237,6 +237,13 @@ function eventValue(key: string, value: unknown) {
               {{ displayDate(source.sent_at, true) }}</small
             >
             <p class="ci-proof">{{ source.text }}</p>
+            <a
+              v-for="attachment in source.attachments"
+              :key="attachment.id"
+              class="ci-attachmentlink"
+              :href="`/api/attachments/${attachment.id}/download`"
+              >📎 下载原始附件：{{ attachment.filename }}</a
+            >
           </article>
         </details>
         <details class="ci-detailsection">

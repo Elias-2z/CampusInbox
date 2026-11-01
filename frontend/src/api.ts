@@ -33,6 +33,22 @@ export interface Message {
   sent_at: string
   timezone: string
   received_at: string
+  attachments: AttachmentInfo[]
+}
+export interface AttachmentInfo {
+  id: string
+  filename: string
+  size: number
+  status: 'parsing' | 'ready' | 'failed'
+}
+export interface FileImport extends AttachmentInfo {
+  text: string
+  error: string
+}
+export interface ImportCapabilities {
+  mineru_configured: boolean
+  max_bytes: number
+  extensions: string[]
 }
 export interface InboxItem {
   id: string

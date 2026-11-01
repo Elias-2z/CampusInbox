@@ -27,6 +27,7 @@ class ImportMessage(BaseModel):
     source: str = Field(default="手动粘贴", min_length=1, max_length=100)
     sent_at: datetime
     timezone: str = "Asia/Shanghai"
+    attachment_id: str | None = None
 
     @field_validator("text", "source")
     @classmethod
@@ -109,6 +110,18 @@ class TaskUpdate(TaskFields):
     status: TaskStatus = "todo"
 
 
+class AttachmentInfo(ReadModel):
+    id: str
+    filename: str
+    size: int
+    status: Literal["parsing", "ready", "failed"]
+
+
+class AttachmentRead(AttachmentInfo):
+    text: str
+    error: str
+
+
 class MessageRead(ReadModel):
     id: str
     text: str
@@ -116,6 +129,7 @@ class MessageRead(ReadModel):
     sent_at: Timestamp
     timezone: str
     received_at: Timestamp
+    attachments: list[AttachmentInfo] = Field(default_factory=list)
 
 
 class EventRead(ReadModel):

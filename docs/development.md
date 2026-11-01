@@ -46,7 +46,9 @@ uv run --python 3.11 scripts/check.py
 
 所有时间以带时区的 UTC 传输和保存，界面显示浏览器本地时间。消息携带原发送时间及命名时区用于相对日期解析。未明确时刻不默认成 23:59；用户可以手动明确截止时间。
 
-SQLite 开启外键与 WAL。写操作在读取待修改对象前获取写事务；模型调用前释放写事务。任务修改用 expected_version 防止并发覆盖。接受建议的状态修改、任务和创建事件在同一事务中完成。
+SQLite 开启外键与 WAL。任务与审核写操作在读取待修改对象前获取写事务；模型调用前释放写事务。任务修改用 expected_version 防止并发覆盖。接受建议的状态修改、任务和创建事件在同一事务中完成。
+
+统一新建新增 Attachment 表，原文件保存在数据库旁的 uploads/，备份和迁移需同时保留。附件上传、提取文本与收件箱审核分开；查询 MinerU 时不持有数据库事务，按状态和批次条件更新结果，防止旧响应覆盖重试后的新批次。临时断网继续查询原批次，明确过期／不存在则允许重提；配置、格式范围和 API 见 [统一新建与附件解析](task-import.md)。
 
 ## 截止时间审核与隔离测试
 
@@ -95,6 +97,6 @@ MergeProposal / MergeChange 增量创建，不修改旧表。关联预览固定�
 
 ## GitHub 与平台验证
 
-提交使用 GitHub noreply 身份，不改全局 Git 身份。已配置 CI 与 Dependabot；本地完整检查命令与 CI 保持一致，包含 203 项后端测试与 3 组前端日期测试。GitHub CLI 与 Codex 连接独立授权，命令行上传需要本机 GitHub 登录。远端工作流结果以仓库 Actions 页面为准。
+提交使用 GitHub noreply 身份，不改全局 Git 身份。已配置 CI 与 Dependabot；本地完整检查命令与 CI 保持一致，当前包含 239 项后端测试与 3 组前端日期测试。GitHub CLI 与 Codex 连接独立授权，命令行上传需要本机 GitHub 登录。远端工作流结果以仓库 Actions 页面为准。
 
 已在 macOS Apple Silicon 验证；Windows / Linux 独立机器安装、正式开源许可证与安装包仍待后续验收。
