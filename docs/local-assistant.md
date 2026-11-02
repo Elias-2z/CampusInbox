@@ -40,7 +40,9 @@ npm --prefix frontend run build
 ```powershell
 npm --prefix frontend test
 npm --prefix frontend run build
-python -B -m unittest discover -s tests -q
+uv run --no-project --python 3.12 --with-requirements requirements-web-push.txt python -B -m unittest discover -s tests -q
 ```
 
 桌面系统集成测试需要 Windows。浏览器检查通过独立临时数据库执行，未接入真实校园账号；通过测试不代表校园网络、平台页面变化或实体手机权限已验收。
+
+完整 Python 回归包含可选 Web Push 用例，因此需要加载 `requirements-web-push.txt` 中的依赖（上述命令需安装 uv）。基础模式运行仍不要求安装推送依赖；Windows 专属测试需在 Windows 执行。

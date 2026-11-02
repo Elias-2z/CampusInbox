@@ -43,4 +43,4 @@ jobs:
       - run: npm --prefix frontend run format:check
       - run: npm --prefix frontend test
       - run: npm --prefix frontend run build
-      - run: uv run --no-project --python 3.12 python -B -m unittest discover -s tests -q
+      - run: uv run --no-project --python 3.12 --with-requirements requirements-web-push.txt python -B -m unittest discover -s tests -q
