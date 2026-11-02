@@ -5,7 +5,7 @@ defineProps<{ busy?: boolean; evidence?: Record<string, Evidence> }>()
 const provenance = (field: Evidence | undefined) =>
   !field
     ? ''
-    : `${field.method === 'rule' ? '规则依据' : field.method === 'user' ? '用户填写' : '模型辅助'}：${field.quote}`
+    : `${field.method === 'connector' ? '群课程设置' : field.method === 'rule' ? '规则依据' : field.method === 'user' ? '用户填写' : '模型辅助'}：${field.quote}`
 </script>
 <template>
   <fieldset class="ci-fieldset" :disabled="busy">

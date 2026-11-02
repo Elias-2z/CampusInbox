@@ -113,6 +113,10 @@ PyCharm 可直接运行 **Dev (frontend + backend)**；解释器选择 `backend/
 
 点击“导出当前视图 .ics”下载当前整月 / 整周与当前筛选的截止任务，可手动导入日历。文件按截止时刻标记任务，没有额外设置时长或提醒，也不会自动同步；重复导入是否覆盖取决于日历客户端。详见 [截止日历文档](docs/calendar.md)。
 
+## QQ 接入核心（适配器待接入）
+
+「设置 → 数据源连接 → QQ」已提供账号、群与指定成员检测范围、状态和队列管理。平台无关核心已连接原收件箱，并提供本机 OneBot HTTP 适配器和 macOS 钥匙串配置；本机已验证真实 QQ 登录、群／成员目录和指定成员文本通知进入收件箱，进程重启可恢复会话与检测范围；长期运行、媒体、完整离线补拉和 Windows 凭据存储仍待验收。详见 [QQ 核心与适配器契约](docs/qq-core.md) 和 [Mac 接入步骤](docs/qq-mac.md)。
+
 ## 本地模型（可选）
 
 先安装并启动 Ollama，再安装符合本机资源的本地模型。建议启动服务时禁用 Ollama 云端功能：
@@ -150,6 +154,7 @@ uv run --python 3.11 scripts/check.py
 - [重复通知关联与字段合并](docs/notice-merging.md)
 - [站内截止提醒](docs/reminders.md)
 - [截止日历与 iCalendar 导出](docs/calendar.md)
+- [Windows QQ 开发与 AI Chat 交接指南](docs/windows-qq-development.md)
 - [开发与故障排查](docs/development.md)
 - [本阶段验证记录](docs/verification.md)
 

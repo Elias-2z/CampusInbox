@@ -34,6 +34,14 @@ export interface Message {
   timezone: string
   received_at: string
   attachments: AttachmentInfo[]
+  source_context?: {
+    platform: string
+    group_id: string
+    group_name: string
+    sender_id: string
+    sender_name: string
+    course: string
+  } | null
 }
 export interface AttachmentInfo {
   id: string

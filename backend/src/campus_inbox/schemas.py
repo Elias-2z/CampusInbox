@@ -130,6 +130,7 @@ class MessageRead(ReadModel):
     timezone: str
     received_at: Timestamp
     attachments: list[AttachmentInfo] = Field(default_factory=list)
+    source_context: dict | None = None
 
 
 class EventRead(ReadModel):

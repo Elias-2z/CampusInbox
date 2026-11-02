@@ -74,6 +74,16 @@ def config(session: Session) -> LocalModelConfig:
 
 def message_read(session: Session, message: Message) -> MessageRead:
     result = MessageRead.model_validate(message)
+    if message.dedupe_key.startswith("qq:"):
+        from campus_inbox.connectors.qq import source_context
+
+        result.source_context = source_context(session, message.dedupe_key)
+        if result.source_context:
+            context = result.source_context
+            result.source = (
+                f"QQ · {context['course'] or context['group_name'] or '课程群'}"
+                f" · 发件人 {context['sender_name'] or context['sender_id']}"
+            )
     result.attachments = [
         AttachmentInfo.model_validate(attachment)
         for attachment in session.exec(
@@ -210,16 +220,23 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
 def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Suggestion:
     message = get_or_404(session, Message, suggestion.message_id)
     result = extract_rules(message.text, message.sent_at, message.timezone)
+    context = None
+    if message.dedupe_key.startswith("qq:"):
+        from campus_inbox.connectors.qq import source_context
+
+        context = source_context(session, message.dedupe_key, persist=True)
     settings = config(session)
     text, sent_at, timezone = message.text, message.sent_at, message.timezone
     session.commit()  # Release database transaction before waiting for inference.
     if result.needs_llm and result.action != "ignore":
         if settings.enabled and settings.model and len(text) <= 12000:
             try:
-                model = provider_factory(settings).generate_structured(
-                    text,
-                    sent_at.replace(tzinfo=UTC).isoformat(),
-                    timezone,
+                provider = provider_factory(settings)
+                reference = sent_at.replace(tzinfo=UTC).isoformat()
+                model = (
+                    provider.generate_contextual(text, reference, timezone, context)
+                    if context and callable(getattr(provider, "generate_contextual", None))
+                    else provider.generate_structured(text, reference, timezone)
                 )
                 result = merge_model(result, model, text, sent_at, timezone)
             except ProviderError as exc:
@@ -230,6 +247,12 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
                 if len(text) > 12000
                 else "本地模型兜底未启用或未选择模型，可直接手动完善。"
             )
+    if not result.fields.get("course") and context and context["course"]:
+        result.fields["course"] = context["course"]
+        result.evidence["course"] = {
+            "method": "connector",
+            "quote": f"QQ群「{context['group_name']}」的课程设置：{context['course']}",
+        }
     if not result.fields.get("title") and result.action == "create":
         result.warnings.append("任务名称待补充。")
     suggestion.fields, suggestion.evidence = result.fields, result.evidence
@@ -242,7 +265,9 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
     return suggestion
 
 
-def import_message(session: Session, body: ImportMessage, provider_factory) -> Suggestion:
+def import_message(
+    session: Session, body: ImportMessage, provider_factory, *, dedupe_key: str | None = None
+) -> Suggestion:
     attachment = None
     if body.attachment_id:
         attachment = get_or_404(session, Attachment, body.attachment_id)
@@ -254,12 +279,15 @@ def import_message(session: Session, body: ImportMessage, provider_factory) -> S
                 select(Suggestion).where(Suggestion.message_id == attachment.message_id)
             ).one()
     day = body.sent_at.astimezone(ZoneInfo(body.timezone)).date().isoformat()
-    key = hashlib.sha256(
-        json.dumps(
-            [re.sub(r"\s+", " ", body.text), body.source, day, body.timezone],
-            ensure_ascii=False,
-        ).encode()
-    ).hexdigest()
+    key = (
+        dedupe_key
+        or hashlib.sha256(
+            json.dumps(
+                [re.sub(r"\s+", " ", body.text), body.source, day, body.timezone],
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
+    )
     existing = session.exec(select(Message).where(Message.dedupe_key == key)).first()
     if existing:
         if attachment:

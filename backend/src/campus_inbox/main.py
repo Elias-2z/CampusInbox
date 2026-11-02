@@ -21,6 +21,10 @@ from campus_inbox import (
     services,
     splitting,
 )
+from campus_inbox.connectors.onebot import OneBotAdapter
+from campus_inbox.connectors.onebot import router as onebot_router
+from campus_inbox.connectors.qq import QQCore
+from campus_inbox.connectors.qq import router as qq_router
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
 from campus_inbox.mineru import MinerUProvider
 from campus_inbox.models import ModelSettings, ReminderSettings, SplitDraft, Suggestion, Task, now
@@ -75,17 +79,30 @@ def create_app(
     provider_factory=OllamaProvider,
     reminder_clock=now,
     mineru_factory=MinerUProvider,
+    qq_adapter=None,
+    qq_background=True,
 ) -> FastAPI:
     engine = make_engine(db_path or Path(os.environ.get("CAMPUSINBOX_DB_PATH", str(DEFAULT_DB))))
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         initialize(engine)
-        yield
-        engine.dispose()
+        if qq_background:
+            qq_core.start()
+        try:
+            yield
+        finally:
+            qq_core.close()
+            engine.dispose()
 
+    qq_core = QQCore(
+        engine, provider_factory, qq_adapter or OneBotAdapter(Path(engine.url.database).parent)
+    )
     application = FastAPI(title="CampusInbox API", version="0.1.0", lifespan=lifespan)
     application.state.engine = engine
+    application.state.qq_core = qq_core
+    application.include_router(qq_router(qq_core))
+    application.include_router(onebot_router(qq_core))
     application.include_router(attachments.router(engine, mineru_factory))
 
     @application.get("/api/health", tags=["system"])

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { post, request, type ModelConfig, type Probe } from '@/api'
 import { useCampus } from '@/stores/campus'
 import ReminderSettings from '@/components/ReminderSettings.vue'
+import QQConnections from '@/components/QQConnections.vue'
 const store = useCampus()
 const config = ref<ModelConfig>({
   enabled: false,
@@ -57,6 +58,7 @@ async function save() {
       <h1>按你的习惯来 ⚙️</h1>
     </div>
   </div>
+  <QQConnections />
   <ReminderSettings />
   <div class="ci-settingslayout">
     <form class="ci-form" @submit.prevent="save">
