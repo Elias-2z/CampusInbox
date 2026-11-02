@@ -1,0 +1,23 @@
+'use strict';
+const assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {createTestServer}=require('./lib/browser-test-server.cjs');
+const fixture=createTestServer('deadline-labels-');let browser;
+(async()=>{
+ const {url}=await fixture.start();browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage();await page.goto(url+'/#tasks');await page.locator('#taskRows').waitFor();
+ const label=(deadline,now='2026-10-29T18:00:00+08:00',status='pending')=>page.evaluate(({deadline,now,status})=>dueLabel({deadline,status},new Date(now)),{deadline,now,status});
+ assert.equal((await label('2026-10-31')).text,'2 天后截止');
+ assert.equal((await label('2026-11-01T20:00:00+08:00')).text,'3 天后截止');
+ assert.equal((await label('2026-11-07T21:33:00+08:00')).text,'9 天后截止');
+ assert.equal((await label('2026-10-29')).text,'今天截止（仅日期）');
+ assert.equal((await label('2026-10-30','2026-10-29T23:59:00+08:00')).text,'1 天后截止');
+ assert.equal((await label('2026-10-31','2026-10-30T00:01:00+08:00')).text,'1 天后截止');
+ assert.equal((await label('2026-10-31','2026-10-29T20:00:00Z')).text,'1 天后截止');
+ assert.equal((await label('2026-10-29T20:00:00+08:00')).text,'2 小时后截止');
+ assert.equal((await label('2026-10-29T18:15:00+08:00')).text,'不足 1 小时截止');
+ assert.equal((await label('2026-10-28')).text,'日期已过');
+ assert.equal((await label('2026-10-29T17:59:00+08:00')).text,'已逾期');
+ assert.equal((await label('2026-10-31',undefined,'submitted')).text,'已手动确认提交');
+ assert.equal((await label(null)).text,'截止待明确');
+ assert.equal(await page.evaluate(()=>formatDeadline('2026-10-31')),'2026.10.31（仅日期）');
+ console.log('PASS date-only and timed deadlines use consistent Beijing calendar days; hours, midnight, overdue, unknown and submission states preserved');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{try{await browser?.close()}finally{await fixture.close()}});

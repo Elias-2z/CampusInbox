@@ -1,0 +1,52 @@
+{
+  "passed": true,
+  "checked_at": "2026-10-11T10:15:42.900Z",
+  "scope": "real account; read-only local UI; currently rendered notices and chats",
+  "sync": {
+    "enabled": true,
+    "state": "connected",
+    "qr_ready": false,
+    "last_checked": "2026-10-11T18:15:12+08:00",
+    "last_received": "2026-10-11T18:12:12+08:00",
+    "last_success": "2026-10-11T18:12:12+08:00",
+    "last_error": "",
+    "incomplete": 0,
+    "queued": 0,
+    "last_count": 4,
+    "session_saved": true,
+    "error_stage": "",
+    "error_code": "",
+    "retry_in": 0,
+    "sources": {
+      "chat": {
+        "state": "connected",
+        "last_checked": "2026-10-11T18:15:11+08:00",
+        "last_success": "2026-10-11T18:15:11+08:00",
+        "checked_count": 3,
+        "captured_count": 0,
+        "failed_count": 0,
+        "pending_count": 0,
+        "error": "",
+        "stage": "",
+        "reason": ""
+      },
+      "notice": {
+        "state": "connected",
+        "last_checked": "2026-10-11T18:15:12+08:00",
+        "last_success": "2026-10-11T18:15:12+08:00",
+        "checked_count": 0,
+        "captured_count": 0,
+        "failed_count": 0,
+        "pending_count": 0,
+        "error": "",
+        "stage": "",
+        "reason": ""
+      }
+    }
+  },
+  "task_count": 5,
+  "message_count": 39,
+  "empty_count": 4,
+  "empty_body_hint": true,
+  "console_errors": []
+}
