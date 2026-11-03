@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { request, post } from '@/api'
 import { useCampus } from '@/stores/campus'
 import OneBotBridge from './OneBotBridge.vue'
@@ -27,12 +27,33 @@ interface Status {
   error: string
 }
 const store = useCampus()
+const bridgePanel = ref<InstanceType<typeof OneBotBridge> | null>(null)
 const status = ref<Status | null>(null)
 const config = ref<Config>({ enabled: false, account_id: '', groups: [], revision: 0 })
 const groups = ref<Group[]>([])
 const members = ref<Record<string, Group[]>>({})
 const busy = ref(false)
 const error = ref('')
+const groupSearch = ref('')
+const memberSearch = ref<Record<string, string>>({})
+const availableGroups = computed(() =>
+  groups.value.filter(
+    (g) =>
+      !config.value.groups.some((selected) => selected.id === g.id) &&
+      `${g.name} ${g.id}`.toLowerCase().includes(groupSearch.value.toLowerCase()),
+  ),
+)
+function visibleMembers(id: string) {
+  const query = (memberSearch.value[id] || '').toLowerCase()
+  const selected = new Set(config.value.groups.find((g) => g.id === id)?.member_ids || [])
+  return (members.value[id] || [])
+    .filter((m) => `${m.name} ${m.id}`.toLowerCase().includes(query))
+    .sort((a, b) => Number(selected.has(b.id)) - Number(selected.has(a.id)))
+    .slice(0, 100)
+}
+function revealEmptyGroup(element: unknown, group: Selection) {
+  if (element instanceof HTMLDetailsElement && !group.id) element.open = true
+}
 async function load() {
   busy.value = true
   error.value = ''
@@ -50,6 +71,7 @@ async function load() {
 }
 onMounted(load)
 async function add(group: Group) {
+  if (config.value.groups.length >= 50) return
   if (!config.value.groups.some((g) => g.id === group.id)) {
     const item = { ...group, course: null, member_ids: [] } as Selection
     config.value.groups.push(item)
@@ -104,15 +126,28 @@ async function act(action: 'save' | 'sync' | 'retry' | 'disconnect') {
 </script>
 <template>
   <section class="ci-form ci-reminder-settings" aria-label="QQ 数据源连接">
-    <h3>🔌 数据源连接 · QQ</h3>
+    <div class="ci-connection-cardhead">
+      <h2>🐧 账号与通知范围</h2>
+      <span class="ci-connection-badge" :class="{ 'is-online': status?.adapter.connected }">{{
+        status?.adapter.connected ? '已连接' : '未连接'
+      }}</span>
+    </div>
     <p class="ci-notice ci-before">
       {{
         status?.adapter.connected
           ? `已连接账号 ${status.adapter.account_id}`
           : '尚未连接 QQ 消息桥'
-      }}。 已支持本机 OneBot HTTP 消息桥；QQ 扫码与验证在桥接程序中完成。保存检测范围不会登录 QQ。
+      }}。选好课程群与成员后，保存即可开始检测。
     </p>
-    <OneBotBridge @changed="load" />
+    <button
+      v-if="status && !status.adapter.connected"
+      type="button"
+      class="ci-btn ci-primary ci-before"
+      @click="bridgePanel?.open()"
+    >
+      连接 QQ
+    </button>
+    <OneBotBridge ref="bridgePanel" @changed="load" />
     <form @submit.prevent="act('save')">
       <fieldset class="ci-fieldset" :disabled="busy || !status">
         <label class="ci-field"
@@ -132,19 +167,45 @@ async function act(action: 'save' | 'sync' | 'retry' | 'disconnect') {
         <p class="ci-notice">
           只处理选定群；成员留空表示全群，否则仅处理选定成员。自己发送的消息跳过。
         </p>
-        <div v-if="groups.length" class="ci-actions">
-          <button
-            v-for="group in groups"
-            :key="group.id"
-            type="button"
-            class="ci-btn"
-            @click="add(group)"
-          >
-            ＋ {{ group.name }}
-          </button>
-        </div>
-        <p v-else class="ci-notice">连接通过后可读取群与成员列表；也可先保存群号和成员号。</p>
-        <div v-for="(group, index) in config.groups" :key="index" class="ci-source ci-before">
+        <h3>接收哪些课程群？</h3>
+        <details v-if="groups.length" class="ci-connection-picker">
+          <summary>＋ 添加课程群 · 已选择 {{ config.groups.length }} 个</summary>
+          <label class="ci-field"
+            >查找群<input
+              v-model="groupSearch"
+              class="ci-input"
+              type="search"
+              placeholder="搜索群名或群号"
+          /></label>
+          <div class="ci-connection-choices">
+            <button
+              v-for="group in availableGroups"
+              :key="group.id"
+              type="button"
+              class="ci-btn"
+              @click="add(group)"
+            >
+              ＋ {{ group.name }}
+            </button>
+            <p v-if="!availableGroups.length" class="ci-notice">没有匹配的未选群。</p>
+          </div>
+        </details>
+        <p v-else class="ci-notice">连接后可选择课程群，也可以在下方手动添加。</p>
+        <details
+          v-for="(group, index) in config.groups"
+          :key="index"
+          class="ci-connection-scope"
+          :ref="(el) => revealEmptyGroup(el, group)"
+        >
+          <summary>
+            <strong>{{
+              group.course || status?.course_suggestions[group.id] || group.name || '新课程群'
+            }}</strong
+            ><span>{{
+              group.member_ids.length ? `仅 ${group.member_ids.length} 位成员` : '全群消息'
+            }}</span
+            ><span>编辑范围 ↓</span>
+          </summary>
           <div class="ci-fieldrow">
             <label class="ci-field"
               >群号<input v-model="group.id" class="ci-input" required pattern="[1-9][0-9]{0,19}"
@@ -172,13 +233,23 @@ async function act(action: 'save' | 'sync' | 'retry' | 'disconnect') {
                   .filter(Boolean)
               "
           /></label>
-          <div v-if="members[group.id]?.length" class="ci-filters">
-            <label v-for="member in members[group.id]" :key="member.id" class="ci-checklabel"
+          <label v-if="members[group.id]?.length" class="ci-field"
+            >查找成员<input
+              v-model="memberSearch[group.id]"
+              class="ci-input"
+              type="search"
+              placeholder="搜索群名片、昵称或 QQ 号"
+          /></label>
+          <div v-if="members[group.id]?.length" class="ci-connection-memberlist">
+            <label v-for="member in visibleMembers(group.id)" :key="member.id" class="ci-checklabel"
               ><input v-model="group.member_ids" type="checkbox" :value="member.id" />{{
                 member.name
               }}（{{ member.id }}）</label
             >
           </div>
+          <p v-if="members[group.id]?.length" class="ci-notice">
+            每次最多显示 100 位成员，可搜索查找其他成员；已选范围会保留。
+          </p>
           <div class="ci-actions">
             <button type="button" class="ci-btn" @click="inferCourse(group)">智能识别课程名</button>
             <button
@@ -193,8 +264,8 @@ async function act(action: 'save' | 'sync' | 'retry' | 'disconnect') {
               移除群
             </button>
           </div>
-        </div>
-        <div class="ci-actions">
+        </details>
+        <div class="ci-actions ci-connection-save">
           <button
             type="button"
             class="ci-btn"

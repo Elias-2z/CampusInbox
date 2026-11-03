@@ -181,3 +181,5 @@ CI 应覆盖根项目的 Windows 测试，可以新增独立工作流或扩展�
 ```
 
 朋友完成后提交小范围 PR，写清改动、Windows 测试环境、真实验证与剩余缺口；合并前再次核对 Mac 现有回归。
+
+界面导航更新：设置首页只保留数据源连接入口；应用列表为 `/settings/connections`，QQ 详情为 `/settings/connections/qq`。平台详情统一由 `ConnectionDetailView.vue` 承载，应用概览为 `ConnectionsView.vue`。Windows 适配请沿用该层级，避免把完整连接表单重新放回设置首页。

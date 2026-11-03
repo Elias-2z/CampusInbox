@@ -3,7 +3,6 @@ import { onMounted, ref } from 'vue'
 import { post, request, type ModelConfig, type Probe } from '@/api'
 import { useCampus } from '@/stores/campus'
 import ReminderSettings from '@/components/ReminderSettings.vue'
-import QQConnections from '@/components/QQConnections.vue'
 const store = useCampus()
 const config = ref<ModelConfig>({
   enabled: false,
@@ -58,7 +57,13 @@ async function save() {
       <h1>按你的习惯来 ⚙️</h1>
     </div>
   </div>
-  <QQConnections />
+  <RouterLink to="/settings/connections" class="ci-connection-entry">
+    <span class="ci-connection-icon" aria-hidden="true">🔌</span>
+    <span class="ci-connection-entry-copy"
+      ><strong>数据源连接</strong><small>管理 QQ、学习通、微信的账号与通知接收范围</small></span
+    >
+    <span class="ci-connection-entry-arrow" aria-hidden="true">→</span>
+  </RouterLink>
   <ReminderSettings />
   <div class="ci-settingslayout">
     <form class="ci-form" @submit.prevent="save">
@@ -130,8 +135,8 @@ async function save() {
       <h3>🗃️ 本地保存</h3>
       <p class="ci-notice">
         任务、来源与历史会在刷新和重启后保留。站内截止提醒和周 /
-        月日历已可使用。图片与文档可从“我的任务 →
-        新建任务”上传；备份恢复、日历自动同步和平台连接将在后续阶段提供。
+        月日历已可使用。图片与文档可从“我的任务 → 新建任务”上传；QQ
+        连接可在上方“数据源连接”管理；备份恢复、日历自动同步及其他平台接入仍在规划中。
       </p>
     </aside>
   </div>

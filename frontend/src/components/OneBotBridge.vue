@@ -3,6 +3,15 @@ import { onMounted, ref } from 'vue'
 import { post, request } from '@/api'
 import { useCampus } from '@/stores/campus'
 const emit = defineEmits<{ changed: [] }>()
+const panel = ref<HTMLDetailsElement>()
+defineExpose({
+  open: () => {
+    if (panel.value) {
+      panel.value.open = true
+      panel.value.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  },
+})
 const store = useCampus()
 interface Bridge {
   enabled: boolean
@@ -56,8 +65,8 @@ async function act(probe = false) {
 }
 </script>
 <template>
-  <details class="ci-source ci-before">
-    <summary>🖥️ Mac 消息桥连接</summary>
+  <details ref="panel" class="ci-source ci-before">
+    <summary>⚙️ 高级连接配置</summary>
     <p class="ci-notice ci-before">
       先在本机 NapCat 中完成 QQ 登录，启用 OneBot HTTP 服务和 HTTP
       事件上报。这里连接消息桥，不安装或修改 QQ。Windows 可复用协议，凭据存储需单独适配。

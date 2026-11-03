@@ -1,0 +1,90 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { request } from '@/api'
+import { useCampus } from '@/stores/campus'
+const store = useCampus()
+const qq = ref<{
+  adapter: { connected: boolean }
+  config: { enabled: boolean; groups: unknown[] }
+} | null>(null)
+const busy = ref(false)
+const error = ref('')
+async function load() {
+  busy.value = true
+  error.value = ''
+  try {
+    qq.value = await request('/connectors/qq')
+  } catch (e) {
+    error.value = store.errorMessage(e)
+  } finally {
+    busy.value = false
+  }
+}
+onMounted(load)
+const apps = [
+  { id: 'chaoxing', icon: '📚', name: '学习通', hint: '课程作业、考试和课程通知', tone: 'yellow' },
+  { id: 'wechat', icon: '💬', name: '微信', hint: '课程群里的通知与补充说明', tone: 'green' },
+]
+</script>
+<template>
+  <nav class="ci-connection-breadcrumb" aria-label="当前位置">
+    <RouterLink to="/settings">设置</RouterLink><span>/</span><span>数据源连接</span>
+  </nav>
+  <div class="ci-pagehead">
+    <div>
+      <div class="ci-eyebrow">KEEP YOUR CAMPUS CONNECTED</div>
+      <h1>把通知接进来 🔌</h1>
+      <p class="ci-notice">选一个应用，管理它的账号和接收范围。</p>
+    </div>
+    <button class="ci-btn" :disabled="busy" @click="load">
+      {{ busy ? '正在检查…' : '刷新状态' }}
+    </button>
+  </div>
+  <p v-if="error" class="ci-inlineerror" role="alert">状态暂不可用：{{ error }}</p>
+  <div class="ci-connection-grid">
+    <article class="ci-connection-card">
+      <div class="ci-connection-icon">🐧</div>
+      <div class="ci-connection-cardhead">
+        <h2>QQ</h2>
+        <span
+          class="ci-connection-badge"
+          :class="{ 'is-online': !error && qq?.adapter.connected }"
+          >{{
+            error ? '状态未知' : !qq ? '读取中' : qq.adapter.connected ? '已连接' : '未连接'
+          }}</span
+        >
+      </div>
+      <p>接收选定课程群和成员的通知。</p>
+      <p class="ci-connection-cardnote">
+        {{
+          error || !qq
+            ? '进入详情查看连接配置'
+            : qq.config.enabled
+              ? `已开启检测 · ${qq.config.groups.length} 个群`
+              : '检测已暂停'
+        }}
+      </p>
+      <RouterLink class="ci-btn ci-primary" to="/settings/connections/qq">{{
+        qq?.adapter.connected ? '管理 QQ 连接 →' : '配置 QQ 连接 →'
+      }}</RouterLink>
+    </article>
+    <article
+      v-for="app in apps"
+      :key="app.id"
+      class="ci-connection-card"
+      :class="`tone-${app.tone}`"
+    >
+      <div class="ci-connection-icon">{{ app.icon }}</div>
+      <div class="ci-connection-cardhead">
+        <h2>{{ app.name }}</h2>
+        <span class="ci-connection-badge">暂未接入</span>
+      </div>
+      <p>{{ app.hint }}</p>
+      <p class="ci-connection-cardnote">当前主应用还不能连接此平台</p>
+      <RouterLink class="ci-btn" :to="`/settings/connections/${app.id}`">查看接入说明 →</RouterLink>
+    </article>
+  </div>
+  <p class="ci-notice ci-connection-footnote">
+    连接状态和通知接收分开显示。接入后生成的任务建议，仍会先送到收件箱供你审核。
+  </p>
+</template>
