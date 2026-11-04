@@ -26,6 +26,9 @@ from campus_inbox.connectors.onebot import router as onebot_router
 from campus_inbox.connectors.qq import QQCore
 from campus_inbox.connectors.qq import router as qq_router
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
+from campus_inbox.inference import InferenceSettings, ModelManager
+from campus_inbox.inference import local_config as local_model_config
+from campus_inbox.inference import router as inference_router
 from campus_inbox.mineru import MinerUProvider
 from campus_inbox.models import ModelSettings, ReminderSettings, SplitDraft, Suggestion, Task, now
 from campus_inbox.providers import OllamaProvider, ProviderError
@@ -81,8 +84,13 @@ def create_app(
     mineru_factory=MinerUProvider,
     qq_adapter=None,
     qq_background=True,
+    model_secrets=None,
+    api_transport=None,
 ) -> FastAPI:
     engine = make_engine(db_path or Path(os.environ.get("CAMPUSINBOX_DB_PATH", str(DEFAULT_DB))))
+
+    manager = ModelManager(engine, provider_factory, model_secrets, api_transport)
+    provider_factory = manager.provider
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -101,6 +109,7 @@ def create_app(
     application = FastAPI(title="CampusInbox API", version="0.1.0", lifespan=lifespan)
     application.state.engine = engine
     application.state.qq_core = qq_core
+    application.include_router(inference_router(manager))
     application.include_router(qq_router(qq_core))
     application.include_router(onebot_router(qq_core))
     application.include_router(attachments.router(engine, mineru_factory))
@@ -371,7 +380,7 @@ def create_app(
 
     @application.get("/api/settings/model", response_model=LocalModelConfig, tags=["settings"])
     def model_config(session: DB):
-        return services.config(session)
+        return local_model_config(session)
 
     @application.put("/api/settings/model", response_model=LocalModelConfig, tags=["settings"])
     def save_model_config(body: LocalModelConfig, session: WriteDB):
@@ -381,6 +390,9 @@ def create_app(
         for key, value in body.model_dump().items():
             setattr(settings, key, value)
         session.add(settings)
+        choice = session.get(InferenceSettings, 1) or InferenceSettings()
+        choice.revision += 1
+        session.add(choice)
         session.commit()
         return body
 

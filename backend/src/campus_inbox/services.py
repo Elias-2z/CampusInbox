@@ -30,7 +30,6 @@ from campus_inbox.models import (
     MergeChange,
     MergeProposal,
     Message,
-    ModelSettings,
     SplitDraft,
     Suggestion,
     Task,
@@ -44,7 +43,6 @@ from campus_inbox.schemas import (
     EventRead,
     ImportMessage,
     InboxItem,
-    LocalModelConfig,
     MessageRead,
     SplitDraftRead,
     TaskDetail,
@@ -65,11 +63,10 @@ def get_or_404(session: Session, table, key: str):
     return value
 
 
-def config(session: Session) -> LocalModelConfig:
-    settings = session.get(ModelSettings, 1)
-    return (
-        LocalModelConfig(**settings.model_dump(exclude={"id"})) if settings else LocalModelConfig()
-    )
+def config(session: Session):
+    from campus_inbox.inference import active_config
+
+    return active_config(session)
 
 
 def message_read(session: Session, message: Message) -> MessageRead:
@@ -245,7 +242,7 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
             result.warnings.append(
                 "通知较长，已保留规则结果，请人工核对。"
                 if len(text) > 12000
-                else "本地模型兜底未启用或未选择模型，可直接手动完善。"
+                else "模型兜底未启用或未选择模型，可直接手动完善。"
             )
     if not result.fields.get("course") and context and context["course"]:
         result.fields["course"] = context["course"]
