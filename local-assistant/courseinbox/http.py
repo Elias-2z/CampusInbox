@@ -474,9 +474,9 @@ def seed_demo(inbox,current=None):
     later=current+timedelta(days=3)
     day=current+timedelta(days=5)
     notices=[
-        f'《软件工程》 第三次作业：请提交实验报告、源代码。截止：{soon:%Y年%m月%d日 %H:%M}。',
-        f'《高等数学》 第一次作业：请提交习题扫描件。截止：{later:%Y年%m月%d日} 20:00。',
-        f'《数据库原理》 实验2：请提交 SQL 脚本、实验报告。截止：{day:%Y年%m月%d日} 18:00。'
+        f'《软件工程》 第三次作业：请提交实验报告、源代码。截止：{soon:%Y}年{soon:%m}月{soon:%d}日 {soon:%H:%M}。',
+        f'《高等数学》 第一次作业：请提交习题扫描件。截止：{later:%Y}年{later:%m}月{later:%d}日 20:00。',
+        f'《数据库原理》 实验2：请提交 SQL 脚本、实验报告。截止：{day:%Y}年{day:%m}月{day:%d}日 18:00。'
     ]
     ids=[]
     for text in notices:
@@ -487,6 +487,6 @@ def seed_demo(inbox,current=None):
             try: ids.append(inbox.confirm(p['id'])['id'])
             except Conflict: pass
     # Missing deadline and extension are left for a person to confirm.
-    inbox.ingest(f'《高等数学》 第一次作业原截止{later:%m月%d日}20:00，现延期到{(later+timedelta(days=1)):%m月%d日}18:00。',source='示例 · 班级群',captured_at=current.isoformat(),scope='示例班级',sample=True)
+    inbox.ingest(f'《高等数学》 第一次作业原截止{later:%m}月{later:%d}日20:00，现延期到{(later+timedelta(days=1)):%m}月{(later+timedelta(days=1)):%d}日18:00。',source='示例 · 班级群',captured_at=current.isoformat(),scope='示例班级',sample=True)
     inbox.ingest('《学术英语》 第二次作业：请提交演讲稿、演示文稿。具体截止时间稍后通知。',source='示例 · 课程通知',captured_at=stamp,scope='示例班级',sample=True)
     return dict(sample=True,message='已加载示例：3个已确认任务、延期草稿和缺少截止的草稿。',task_ids=ids)
