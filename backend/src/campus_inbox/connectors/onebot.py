@@ -1,4 +1,4 @@
-"""Local OneBot HTTP bridge, with macOS Keychain credentials and signed event intake."""
+"""Local OneBot HTTP bridge, with OS-vault credentials and signed event intake."""
 
 import hashlib
 import hmac
@@ -21,6 +21,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
+from campus_inbox.connectors.credentials import WindowsCredentials
 from campus_inbox.connectors.qq import AdapterState, Batch, Group, Incoming, Member
 
 MAX_BYTES = 256 * 1024
@@ -32,6 +33,12 @@ class BridgeError(Exception):
 
 class Keychain:
     """Only the OS credential store holds tokens. Never capture or log command errors."""
+
+    label = "macOS 钥匙串"
+
+    @property
+    def supported(self):
+        return sys.platform == "darwin"
 
     def __init__(self, identity):
         self.service = "CampusInbox.QQ." + hashlib.sha256(str(identity).encode()).hexdigest()[:16]
@@ -69,6 +76,11 @@ class Keychain:
         )
         if result.returncode:
             raise BridgeError("无法保存 QQ 凭据，请检查 macOS 钥匙串权限。")
+
+
+def credential_store(directory):
+    """Keep existing Mac targets; Windows uses its own user-local credential vault."""
+    return WindowsCredentials(directory) if sys.platform == "win32" else Keychain(directory)
 
 
 def local_url(value):
@@ -113,7 +125,7 @@ class BridgeUpdate(BridgeConfig):
 class OneBotAdapter:
     def __init__(self, directory: Path, *, secrets=None, transport=None):
         self.path = directory / "qq-onebot.json"
-        self.secrets = secrets or Keychain(directory.resolve())
+        self.secrets = secrets if secrets is not None else credential_store(directory.resolve())
         self.transport = transport
         self.lock = threading.RLock()
         self.config = BridgeConfig()
@@ -134,12 +146,23 @@ class OneBotAdapter:
 
     def public(self):
         with self.lock:
+            saved = {}
+            credential_error = ""
+            for key in ("access", "events"):
+                try:
+                    saved[key] = bool(self.secret(key))
+                except Exception:
+                    saved[key] = False
+                    credential_error = "无法读取系统凭据，请重新填写两项密钥或检查权限。"
             return dict(
                 **self.config.model_dump(),
-                token_saved=bool(self.secret("access")),
-                event_secret_saved=bool(self.secret("events")),
+                platform=sys.platform,
+                credential_storage=getattr(self.secrets, "label", "本机安全存储"),
+                credential_supported=getattr(self.secrets, "supported", True),
+                token_saved=saved["access"],
+                event_secret_saved=saved["events"],
                 state=self.state,
-                error=self.issue,
+                error=credential_error or self.issue,
             )
 
     def configure(self, update):
@@ -377,7 +400,9 @@ def router(core):
         try:
             return describe(request)
         except Exception:
-            raise HTTPException(503, "无法读取消息桥配置或钥匙串。") from None
+            raise HTTPException(
+                503, "无法读取消息桥配置或系统凭据，请检查权限或重新配置。"
+            ) from None
 
     @api.put("")
     def configure(body: BridgeUpdate, request: Request):
@@ -385,13 +410,16 @@ def router(core):
             driver().configure(body)
             return describe(request)
         except Exception:
-            raise HTTPException(422, "无法保存配置，请检查密钥及 macOS 钥匙串权限。") from None
+            raise HTTPException(422, "无法保存配置，请检查密钥及系统凭据存储权限。") from None
 
     @api.post("/probe")
     def probe(request: Request):
-        bridge = driver()
-        bridge.status(force=True)
-        return describe(request)
+        try:
+            bridge = driver()
+            bridge.status(force=True)
+            return describe(request)
+        except Exception:
+            raise HTTPException(503, "无法读取系统凭据，请重新配置或检查权限。") from None
 
     @api.post("/events", status_code=204)
     async def receive(request: Request):

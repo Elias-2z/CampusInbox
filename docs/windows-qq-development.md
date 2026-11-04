@@ -2,6 +2,8 @@
 
 更新时间：2026-11-02。目标：让 Windows 用户在同一套 CampusInbox 中连接本人 QQ、选择群／成员、接收通知并审核任务，复用现有核心与 OneBot 协议。
 
+2026-11-04 实现更新：已接入 Windows Credential Manager、平台能力提示、主应用 Windows 启动／停止脚本和跨平台后端 CI。操作步骤与当前验证边界见 [Windows QQ 运行说明](qq-windows.md)。下文保留原交接设计；其中“当前主要缺口”等描述指交接时状态。真实 QQ 扫码与测试群验收仍待完成。
+
 ## 先确认拿到了正确版本
 
 本文对应包含 `backend/src/campus_inbox/connectors/qq.py`、`onebot.py`、`courses.py` 的版本。开始前先检查这些文件存在，且 `docs/qq-core.md`、`docs/qq-mac.md` 可以打开；缺少时先向项目负责人同步最新 QQ 改动，不要在旧版本里重新写一套核心。本文不表示代码已自动推送到远端。

@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import sys
 from datetime import datetime
 
 import httpx
@@ -94,7 +95,8 @@ async def test_catalog_credentials_persistence_and_reconnect(tmp_path):
     assert TOKEN not in public and SECRET not in public
     assert TOKEN not in bridge.path.read_text()
     assert SECRET not in bridge.path.read_text()
-    assert bridge.path.stat().st_mode & 0o777 == 0o600
+    if sys.platform != "win32":
+        assert bridge.path.stat().st_mode & 0o777 == 0o600
     reopened = OneBotAdapter(tmp_path, secrets=secrets, transport=bridge.transport)
     assert reopened.status().connected
     bridge.disconnect()
@@ -236,3 +238,51 @@ async def test_invalid_credentials_not_echoed_and_shutdown_preserves_intent(tmp_
             assert response.status_code == 422
             assert "private-invalid-secret" not in response.text
     assert OneBotAdapter(tmp_path, secrets=bridge.secrets).config.enabled
+
+
+async def test_credential_store_errors_are_safe_and_can_be_reconfigured(tmp_path):
+    class BrokenStore(Secrets):
+        def get(self, key):
+            raise RuntimeError(TOKEN)
+
+    bridge = OneBotAdapter(tmp_path, secrets=BrokenStore())
+    app = create_app(tmp_path / "test.db", qq_adapter=bridge, qq_background=False)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as client:
+            for method, path in (("GET", ""), ("POST", "/probe")):
+                response = await client.request(method, "/api/connectors/qq/onebot" + path)
+                # Return safe config metadata so the form remains usable for repair.
+                assert response.status_code == 200
+                assert response.json()["error"]
+                assert not response.json()["token_saved"]
+                assert TOKEN not in response.text
+            response = await client.put(
+                "/api/connectors/qq/onebot",
+                json={"enabled": True, "access_token": TOKEN, "event_secret": SECRET},
+            )
+            assert response.status_code == 200
+            assert response.json()["token_saved"]
+            assert TOKEN not in response.text and SECRET not in response.text
+
+
+async def test_failed_vault_write_is_not_reported_as_saved(tmp_path):
+    class DeniedStore(Secrets):
+        def set(self, key, value):
+            raise RuntimeError(value)
+
+    bridge = OneBotAdapter(tmp_path, secrets=DeniedStore())
+    app = create_app(tmp_path / "test.db", qq_adapter=bridge, qq_background=False)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as client:
+            response = await client.put(
+                "/api/connectors/qq/onebot",
+                json={"enabled": True, "access_token": TOKEN, "event_secret": SECRET},
+            )
+            assert response.status_code == 422
+            assert TOKEN not in response.text and SECRET not in response.text
+            assert not bridge.config.enabled
+            assert not bridge.path.exists()

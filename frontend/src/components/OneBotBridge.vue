@@ -15,6 +15,9 @@ defineExpose({
 const store = useCampus()
 interface Bridge {
   enabled: boolean
+  platform: string
+  credential_storage: string
+  credential_supported: boolean
   base_url: string
   token_saved: boolean
   event_secret_saved: boolean
@@ -55,7 +58,9 @@ async function act(probe = false) {
         })
     token.value = ''
     secret.value = ''
-    store.notice = probe ? '消息桥连接检查已完成。' : '桥接配置已保存，密钥保存在 macOS 钥匙串。'
+    store.notice = probe
+      ? '消息桥连接检查已完成。'
+      : `桥接配置已保存，密钥保存在${info.value.credential_storage}。`
     emit('changed')
   } catch (e) {
     error.value = store.errorMessage(e)
@@ -69,10 +74,14 @@ async function act(probe = false) {
     <summary>⚙️ 高级连接配置</summary>
     <p class="ci-notice ci-before">
       先在本机 NapCat 中完成 QQ 登录，启用 OneBot HTTP 服务和 HTTP
-      事件上报。这里连接消息桥，不安装或修改 QQ。Windows 可复用协议，凭据存储需单独适配。
+      事件上报。这里连接消息桥，不安装或修改 QQ。Windows 与 macOS 均使用各自的系统安全凭据存储。
+    </p>
+    <p v-if="info" class="ci-notice">凭据存储：{{ info.credential_storage }}</p>
+    <p v-if="info && !info.credential_supported" class="ci-inlineerror" role="alert">
+      当前系统尚未提供 QQ 安全凭据存储，请使用 Windows 或 macOS。
     </p>
     <form @submit.prevent="act()">
-      <fieldset class="ci-fieldset" :disabled="busy || !info">
+      <fieldset class="ci-fieldset" :disabled="busy || !info || !info.credential_supported">
         <label class="ci-field"
           >OneBot HTTP 地址<input
             v-model="url"

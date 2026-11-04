@@ -72,6 +72,7 @@ watch(
 watch(
   [() => selected.value?.id, () => selected.value?.status],
   ([id, status], previous) => {
+    if (id && !selectedId.value) selectedId.value = String(id)
     duplicateAllowed.value = false
     mergeMode.value = !!selected.value?.matched_tasks.some((t) =>
       ['todo', 'in_progress'].includes(t.status),
