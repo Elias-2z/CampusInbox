@@ -46,6 +46,16 @@ def load_settings(directory):
         except (ValueError,KeyError,TypeError,OSError): pass
     return {'allowed_packages':DEFAULT_PACKAGES.copy()}
 
+def export_backup(inbox):
+    return dict(
+        version='0.1.0',
+        exported_at=now_iso(),
+        messages=inbox.messages(limit=None,include_hidden=True),
+        proposals=inbox.proposals(None),
+        tasks=[inbox.task_detail(task['id']) for task in inbox.tasks()],
+    )
+
+
 def create_server(host,port,inbox,token,root=None,agent=None,*,reminder_port=8766,qq_port=8767):
     root=Path(root or Path(__file__).resolve().parents[1])
     configured=agent or Agent(inbox,provider_from_env())
@@ -313,8 +323,12 @@ def create_server(host,port,inbox,token,root=None,agent=None,*,reminder_port=876
                         return self.response(200,dict(settings,agent=configured.info(),server_port=self.server.server_port,listen_host=host,addresses=sorted(self.server.discovery.allowed_hosts()),mobile_discovery=self.server.discovery.status(),chaoxing_web=web_status,ocr=os.name=='nt',pdf_optional=True))
                     if path=='/api/calendar.ics': return self.response(200,inbox.calendar(),'text/calendar; charset=utf-8','courseinbox.ics')
                     if path=='/api/export.json':
-                        content=dict(version='0.1.0',exported_at=now_iso(),messages=inbox.messages(limit=None,include_hidden=True),proposals=inbox.proposals(None),tasks=[inbox.task_detail(t['id']) for t in inbox.tasks()])
-                        return self.response(200,content,filename='courseinbox-backup.json')
+                        content=export_backup(inbox)
+                        return self.response(200,json.dumps(content,ensure_ascii=False,indent=2)+'\n',filename='courseinbox-backup.json')
+                    if path=='/api/export.txt':
+                        from .readable_export import render_report
+                        text=render_report([inbox.task_detail(t['id']) for t in inbox.tasks()],inbox.messages(limit=None,include_hidden=True),inbox.proposals(None),now_iso())
+                        return self.response(200,text,'text/plain; charset=utf-8','campusinbox-report.txt')
                     if path.startswith('/api/tasks/'):
                         return self.response(200,inbox.task_detail(path.rsplit('/',1)[-1]))
                 if method in ('POST','PATCH'):
@@ -460,9 +474,9 @@ def seed_demo(inbox,current=None):
     later=current+timedelta(days=3)
     day=current+timedelta(days=5)
     notices=[
-        f'《软件工程》 第三次作业：请提交实验报告、源代码。截止：{soon:%Y年%m月%d日 %H:%M}。',
-        f'《高等数学》 第一次作业：请提交习题扫描件。截止：{later:%Y年%m月%d日} 20:00。',
-        f'《数据库原理》 实验2：请提交 SQL 脚本、实验报告。截止：{day:%Y年%m月%d日} 18:00。'
+        f'《软件工程》 第三次作业：请提交实验报告、源代码。截止：{soon:%Y}年{soon:%m}月{soon:%d}日 {soon:%H:%M}。',
+        f'《高等数学》 第一次作业：请提交习题扫描件。截止：{later:%Y}年{later:%m}月{later:%d}日 20:00。',
+        f'《数据库原理》 实验2：请提交 SQL 脚本、实验报告。截止：{day:%Y}年{day:%m}月{day:%d}日 18:00。'
     ]
     ids=[]
     for text in notices:
@@ -473,6 +487,6 @@ def seed_demo(inbox,current=None):
             try: ids.append(inbox.confirm(p['id'])['id'])
             except Conflict: pass
     # Missing deadline and extension are left for a person to confirm.
-    inbox.ingest(f'《高等数学》 第一次作业原截止{later:%m月%d日}20:00，现延期到{(later+timedelta(days=1)):%m月%d日}18:00。',source='示例 · 班级群',captured_at=current.isoformat(),scope='示例班级',sample=True)
+    inbox.ingest(f'《高等数学》 第一次作业原截止{later:%m}月{later:%d}日20:00，现延期到{(later+timedelta(days=1)):%m}月{(later+timedelta(days=1)):%d}日18:00。',source='示例 · 班级群',captured_at=current.isoformat(),scope='示例班级',sample=True)
     inbox.ingest('《学术英语》 第二次作业：请提交演讲稿、演示文稿。具体截止时间稍后通知。',source='示例 · 课程通知',captured_at=stamp,scope='示例班级',sample=True)
     return dict(sample=True,message='已加载示例：3个已确认任务、延期草稿和缺少截止的草稿。',task_ids=ids)

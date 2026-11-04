@@ -2,7 +2,8 @@
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 import dateparser
@@ -40,6 +41,9 @@ DEADLINE_CHANGE = re.compile(
     r"延期|延迟|推迟|顺延|延后|延至|提前(?:到|至|为|[一二三四五六七八九十0-9])"
     r"|(?:截止(?:时间|日期|期限)?|(?:提交|交付|上交)(?:时间|日期|期限))"
     r"[^。，；\n]{0,40}(?:调整|改[为到成]|变更)"
+)
+REVISED_DEADLINE_PREFIX = re.compile(
+    r"(?:延期|延迟|推迟|提前|顺延|延后|延至|调整|变更|更改|改)[到至为成]?$"
 )
 CANCELLATION = re.compile(
     r"取消|作废|不用交|无需提交|不(?:用|需要|必)(?:再)?(?:提交|上交|交)|不要(?:再)?(?:提交|上交)"
@@ -192,7 +196,52 @@ def number(value: str) -> int:
     return digits.get(value, -1)
 
 
-def parse_deadline(text: str, sent_at: datetime, timezone: str) -> DateResult:
+def lab_schedule_quotes(text: str) -> list[str]:
+    quotes = []
+    for clause in re.split(r"[，,。；;！!？?\n]", text):
+        clause = clause.strip()
+        if not clause or len(clause) > 240:
+            continue
+        if CHANGE_WORDS.search(clause) or re.search(
+            r"如果|假如|若|可能|是否|待定|另行通知|不(?:再)?(?:进行|参加|开展)实验|截止|提交|上交",
+            clause,
+        ):
+            continue
+        stamp = DATE.search(clause)
+        if stamp and (
+            re.search(r"实验(?:时间|日期|安排)[：:\s为定于]*$", clause[: stamp.start()])
+            or re.search(r"(?:进行|参加|开展)实验|(?:到|前往)实验室", clause[stamp.end() :])
+        ):
+            if clause not in quotes:
+                quotes.append(clause)
+            if len(quotes) == 3:
+                break
+    return quotes
+
+
+def deadline_clause_score(text: str, start: int, end: int) -> int:
+    prefix = re.split(r"[，,。；;！!？?\n]", text[:start])[-1].strip()
+    suffix = re.split(r"[，,。；;！!？?\n]", text[end:])[0].strip()
+    if re.search(r"发布时间|发布于|布置于|开始时间|开课时间|实验时间", prefix):
+        return 0
+    if re.match(r"发布|布置|发出|收到|之后|以后|上课(?!前)|开始(?!前)", suffix):
+        return 0
+    if re.search(r"(?:无需|不用|不要|并非)[^：:]{0,12}$", prefix):
+        return 0
+    if REVISED_DEADLINE_PREFIX.search(prefix):
+        return 3
+    if re.search(r"(?:截止(?:时间|日期)?|截至|最晚|最迟)[：:\s至到为]*$", prefix):
+        return 2
+    if re.match(r"(?:截止|为止|(?:之|以)?前\s*(?:提交|上交|上传|完成|交|将|把))", suffix):
+        return 2
+    if re.match(r"(?:提交|上交|上传|补交)", suffix):
+        return 1
+    return 0
+
+
+def parse_deadline(
+    text: str, sent_at: datetime, timezone: str, *, scoped_deadline: bool = False
+) -> DateResult:
     anchor = sent_at.replace(tzinfo=UTC) if sent_at.tzinfo is None else sent_at
     anchor = anchor.astimezone(ZoneInfo(timezone))
     candidates: list[tuple[int, datetime, str]] = []
@@ -271,6 +320,8 @@ def parse_deadline(text: str, sent_at: datetime, timezone: str) -> DateResult:
             score = 1
         if re.match(r"\s*(?:发布|布置|发出|收到|之后|以后|上课(?!前)|开始(?!前))", nearby):
             score = 0
+        if scoped_deadline:
+            score = deadline_clause_score(text, match.start(), end)
         candidates.append((score, due, text[match.start() : end]))
     if not candidates:
         if found_date and not warnings:
@@ -288,6 +339,66 @@ def parse_deadline(text: str, sent_at: datetime, timezone: str) -> DateResult:
     if due < anchor:
         warnings.append("截止时间早于消息发送时间，请核对是否已经逾期。")
     return DateResult(due.astimezone(UTC), quote, list(dict.fromkeys(warnings)))
+
+
+def has_alternative_dates(text: str) -> bool:
+    for first, second in pairwise(DATE.finditer(text)):
+        between = text[first.end() : second.start()]
+        if clock := TIME.match(between):
+            between = between[clock.end() :]
+        if re.fullmatch(r"\s*(?:(?:之|以)?前|截止)?\s*(?:或者|或)\s*", between):
+            return True
+    return False
+
+
+def parse_date_only(
+    text: str, sent_at: datetime, timezone: str, *, scoped_deadline: bool = False
+) -> tuple[date, str] | None:
+    """Return an unambiguous civil deadline without inventing a clock time."""
+    anchor = sent_at.replace(tzinfo=UTC) if sent_at.tzinfo is None else sent_at
+    anchor = anchor.astimezone(ZoneInfo(timezone))
+    candidates = []
+    for match in DATE.finditer(text):
+        if TIME.match(text[match.end() :]):
+            continue
+        if scoped_deadline and not deadline_clause_score(text, match.start(), match.end()):
+            continue
+        prefix = re.split(r"[，,。；;！!？?\n]", text[: match.start()])[-1][-20:]
+        suffix = re.split(r"[，,。；;！!？?\n]", text[match.end() :])[0][:20]
+        if re.search(r"(?:不|无需|不用|不要|并非)[^，。；]{0,8}$", prefix):
+            continue
+        if not (
+            re.search(r"截止|截至|最晚|最迟|延期至|延至|改至|改到", prefix)
+            or REVISED_DEADLINE_PREFIX.search(prefix.strip())
+            or re.match(r"\s*(?:之前|以前|前|截止|为止|提交|上交|上传|完成)", suffix)
+        ):
+            continue
+        try:
+            if match["relative"]:
+                token = match["relative"]
+                if token in {"今天", "明天", "后天", "今晚", "明晚"}:
+                    day = anchor.date() + timedelta(
+                        days={"今天": 0, "今晚": 0, "明天": 1, "明晚": 1, "后天": 2}[token]
+                    )
+                else:
+                    weekday = "一二三四五六日".index(token[-1].replace("天", "日"))
+                    week = 7 if token.startswith("下周") else 0
+                    day = anchor.date() + timedelta(days=weekday - anchor.weekday() + week)
+            elif match["iso"]:
+                year, month, day_number = map(int, re.split(r"[-/]", match["iso"]))
+                day = date(year, month, day_number)
+            else:
+                day = date(
+                    int(match["year"] or anchor.year), int(match["month"]), int(match["day"])
+                )
+                if not match["year"] and day < anchor.date():
+                    continue
+        except (ValueError, OverflowError):
+            continue
+        candidates.append((day, match.group()))
+    if not candidates or len({day for day, _ in candidates}) != 1:
+        return None
+    return candidates[0]
 
 
 def infer_title(text: str) -> str:
@@ -311,7 +422,9 @@ def infer_title(text: str) -> str:
     return ""
 
 
-def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
+def extract_rules(
+    text: str, sent_at: datetime | None, timezone: str, *, scoped_deadline: bool = False
+) -> Extraction:
     result = Extraction(
         fields={
             "title": "",
@@ -319,6 +432,7 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
             "kind": "other",
             "description": text,
             "due_at": None,
+            "due_date": None,
             "submission_platform": "",
             "submission_method": "",
             "file_requirements": "",
@@ -350,13 +464,35 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
     if course:
         result.fields["course"] = course
         result.evidence["course"] = {"method": "rule", "quote": course}
-    deadline = (
-        DateResult() if cancellation_supported(text) else parse_deadline(text, sent_at, timezone)
-    )
+    if sent_at is None:
+        deadline = DateResult(warnings=["发布时间未知，请核对原文并手动填写截止时间。"])
+        date_only = None
+    elif cancellation_supported(text):
+        deadline, date_only = DateResult(), None
+    elif has_alternative_dates(text):
+        deadline = DateResult(warnings=["通知包含多个可能的截止时间，请核对后手动选择。"])
+        date_only = None
+    else:
+        deadline = parse_deadline(text, sent_at, timezone, scoped_deadline=scoped_deadline)
+        date_only = parse_date_only(text, sent_at, timezone, scoped_deadline=scoped_deadline)
+    if (
+        deadline.due_at
+        and date_only
+        and deadline.due_at.astimezone(ZoneInfo(timezone)).date() != date_only[0]
+    ):
+        deadline = DateResult(warnings=["通知包含多个可能的截止时间，请核对后手动选择。"])
+        date_only = None
     result.fields["due_at"] = deadline.due_at.isoformat() if deadline.due_at else None
     result.warnings.extend(deadline.warnings)
     if deadline.quote:
         result.evidence["due_at"] = {"method": "rule", "quote": deadline.quote}
+    elif date_only and not any("多个可能的截止时间" in w for w in deadline.warnings):
+        result.fields["due_date"] = date_only[0].isoformat()
+        result.evidence["due_date"] = {"method": "rule", "quote": date_only[1]}
+        result.warnings = [
+            w for w in result.warnings if w != "通知未明确具体截止时刻，已留空，请补充。"
+        ]
+        result.warnings.append("原文未明确具体时刻，已保留日期，请核对。")
     for platform in ["学习通", "雨课堂", "课程群", "QQ", "微信", "邮箱"]:
         if platform in text:
             result.fields["submission_platform"] = platform
@@ -395,7 +531,13 @@ def extract_rules(text: str, sent_at: datetime, timezone: str) -> Extraction:
 
 
 def merge_model(
-    result: Extraction, model: dict, text: str, sent_at: datetime, timezone: str
+    result: Extraction,
+    model: dict,
+    text: str,
+    sent_at: datetime,
+    timezone: str,
+    *,
+    scoped_deadline: bool = False,
 ) -> Extraction:
     """Only source-supported, missing fields may be filled by the model."""
     mapping = {
@@ -432,8 +574,13 @@ def merge_model(
         result.evidence[target] = {"method": "llm", "quote": value}
         changed = True
     due_text = model.get("due_text")
-    if due_text and not result.fields.get("due_at"):
-        if due_text not in text:
+    if (
+        due_text
+        and not result.fields.get("due_at")
+        and not result.fields.get("due_date")
+        and not any("多个可能的截止时间" in w for w in result.warnings)
+    ):
+        if scoped_deadline or due_text not in text:
             rejected = True
         else:
             parsed = parse_deadline(due_text, sent_at, timezone)

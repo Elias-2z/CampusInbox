@@ -2,6 +2,10 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import QQConnections from '@/components/QQConnections.vue'
+import ChaoxingConnection from '@/components/ChaoxingConnection.vue'
+import WechatPush from '@/components/WechatPush.vue'
+import { useCampus } from '@/stores/campus'
+const store = useCampus()
 const route = useRoute()
 const provider = computed(() => String(route.params.provider))
 const name = computed(
@@ -22,13 +26,20 @@ const name = computed(
     </div>
     <RouterLink class="ci-btn" to="/settings/connections">返回全部连接</RouterLink>
   </div>
-  <QQConnections v-if="provider === 'qq'" />
+  <template v-if="provider === 'qq'">
+    <button type="button" class="ci-btn" @click="store.openImport('QQ')">粘贴 QQ 通知</button>
+    <QQConnections />
+  </template>
+  <ChaoxingConnection v-else-if="provider === 'chaoxing'" />
   <section v-else class="ci-form ci-connection-empty">
-    <span class="ci-connection-icon">{{ provider === 'chaoxing' ? '📚' : '💬' }}</span>
-    <h2>{{ name }}暂未接入主应用</h2>
+    <span class="ci-connection-icon">💬</span>
+    <h2>粘贴微信通知</h2>
     <p class="ci-notice">
-      连接功能开放后，你可以在这里单独配置。当前可以先粘贴通知或上传截图、文件，继续整理任务。
+      从微信复制一条通知，填写原消息发送时间。整理后的内容会进入收件箱，核对后再创建或更新任务。
     </p>
-    <RouterLink class="ci-btn ci-primary" to="/tasks">去导入通知 →</RouterLink>
+    <button type="button" class="ci-btn ci-primary" @click="store.openImport('微信')">
+      开始粘贴
+    </button>
   </section>
+  <WechatPush v-if="provider === 'wechat'" />
 </template>

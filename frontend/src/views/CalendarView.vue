@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   courseEmoji,
   downloadCalendar,
+  deadlineKey,
   request,
   statusNames,
   type CalendarFeed,
@@ -21,6 +22,8 @@ const scopes = [
   { id: 'todo', label: '待办' },
   { id: 'in_progress', label: '进行中' },
   { id: 'completed', label: '已完成' },
+  { id: 'done', label: '已做完，未提交' },
+  { id: 'submitted', label: '已提交' },
   { id: 'cancelled', label: '已取消' },
   { id: 'archived', label: '已归档' },
 ]
@@ -58,7 +61,8 @@ const courses = computed(() =>
 const grouped = computed(() => {
   const result: Record<string, Task[]> = {}
   for (const task of feed.value?.tasks || []) {
-    const key = dayKey(new Date(task.due_at!))
+    const key = deadlineKey(task)
+    if (!key) continue
     ;(result[key] ||= []).push(task)
   }
   return result
@@ -306,13 +310,16 @@ async function exportIcs() {
               :to="`/tasks/${task.id}`"
               class="ci-calendar-chip"
               :class="{
-                'ci-calendar-inactive': ['completed', 'cancelled', 'archived'].includes(
-                  task.status,
-                ),
+                'ci-calendar-inactive': [
+                  'completed',
+                  'submitted',
+                  'cancelled',
+                  'archived',
+                ].includes(task.status),
               }"
               :title="`${task.title} · ${statusNames[task.status]}`"
-              ><time>{{ clock(task.due_at!) }}</time> {{ courseEmoji(task.course) }}
-              {{ task.title }}</RouterLink
+              ><time>{{ task.due_date ? '仅日期' : clock(task.due_at!) }}</time>
+              {{ courseEmoji(task.course) }} {{ task.title }}</RouterLink
             ><button
               v-if="view === 'month' && (grouped[dayKey(day)]?.length || 0) > 2"
               class="ci-calendar-more cursor-interaction"

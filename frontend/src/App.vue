@@ -1,22 +1,46 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import { useCampus } from '@/stores/campus'
 import NewTaskModal from '@/components/NewTaskModal.vue'
 import TaskEditor from '@/components/TaskEditor.vue'
+import TaskAssistant from '@/components/TaskAssistant.vue'
+import { browserRemindersEnabled, dispatchBrowserReminders } from '@/browserReminders'
 const store = useCampus()
 const route = useRoute()
+const assistantOpen = ref(false)
 let timer: number | undefined
 let inboxTimer: number | undefined
 function refreshInboxWhenVisible() {
   if (document.visibilityState === 'visible') void store.refreshInbox()
 }
 function refreshRemindersWhenVisible() {
-  if (document.visibilityState === 'visible' && !store.busy && !store.reminderBusy) {
+  let notificationsEnabled = false
+  try {
+    notificationsEnabled = browserRemindersEnabled(window.localStorage)
+  } catch {
+    // Browser storage can be unavailable in private browsing.
+  }
+  if (
+    (document.visibilityState === 'visible' || notificationsEnabled) &&
+    !store.busy &&
+    !store.reminderBusy
+  ) {
     store.clock = Date.now()
     void store.refreshReminders()
   }
 }
+watch(
+  () => store.reminderFeed,
+  (feed) => {
+    if (!feed?.config.enabled || !('Notification' in window)) return
+    try {
+      dispatchBrowserReminders(window.localStorage, window.Notification, feed.items)
+    } catch {
+      // In-app reminders remain available when browser storage is unavailable.
+    }
+  },
+)
 onMounted(() => {
   void store.initialize()
   inboxTimer = window.setInterval(refreshInboxWhenVisible, 5000)
@@ -101,8 +125,17 @@ onUnmounted(() => {
     <main class="ci-main"><RouterView /></main>
     <footer class="ci-footer">
       <span>✳ 让分散的校园信息，变成可执行任务。</span><span>本地保存 · 确认后创建</span>
+      <button
+        type="button"
+        class="ci-btn ci-text"
+        :disabled="!store.ready"
+        @click="assistantOpen = true"
+      >
+        课务助手
+      </button>
     </footer>
     <NewTaskModal v-if="store.importing" /><TaskEditor v-if="store.editorOpen" />
+    <TaskAssistant v-if="assistantOpen" @close="assistantOpen = false" />
     <div v-if="store.celebration" class="ci-celebration" aria-hidden="true">
       <span
         v-for="(emoji, index) in ['✨', '🎉', '🌟', '💜', '✳️']"

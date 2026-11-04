@@ -2,7 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  displayDate,
+  displayMessageTime,
+  displayDeadline,
   draftOf,
   post,
   serialize,
@@ -12,6 +13,7 @@ import {
 } from '@/api'
 import { useCampus } from '@/stores/campus'
 import TaskForm from '@/components/TaskForm.vue'
+import AttachmentText from '@/components/AttachmentText.vue'
 import DeadlineReview from '@/components/DeadlineReview.vue'
 import CancellationReview from '@/components/CancellationReview.vue'
 import SplitReview from '@/components/SplitReview.vue'
@@ -28,6 +30,7 @@ const tabs = [
   { id: 'pending', title: '待处理' },
   { id: 'accepted', title: '已处理' },
   { id: 'ignored', title: '已忽略' },
+  { id: 'archived', title: '历史归档' },
   { id: 'all', title: '全部' },
 ]
 const items = computed(() =>
@@ -41,6 +44,10 @@ const items = computed(() =>
 const selected = computed(
   () => items.value.find((i) => i.id === selectedId.value) || items.value[0],
 )
+const isCheckin = computed(() => {
+  const context = selected.value?.message.source_context
+  return context?.platform === 'chaoxing' && context.kind === 'checkin_activity'
+})
 const draft = computed({
   get: () => {
     const i = selected.value
@@ -109,13 +116,28 @@ async function accept() {
   if (task) await router.push(`/tasks/${task.id}`)
 }
 async function retry() {
-  if (!selected.value) return
-  const id = selected.value.id
+  const item = selected.value
+  if (!item || store.busy) return
+  if (
+    JSON.stringify(draft.value) !== JSON.stringify(draftOf(item.fields)) &&
+    !window.confirm('重新识别会替换当前草稿中尚未保存的修改。确定继续？')
+  ) {
+    return
+  }
+  const id = item.id
   const result = await store.mutate(
     () => post<InboxItem>(`/inbox/${id}/analyze`),
     '重新识别完成，请核对结果。',
   )
   if (result) drafts[id] = draftOf(result.fields)
+}
+async function fetchOriginal(eventId: string | undefined, index: number) {
+  if (!eventId) return
+  await store.mutate(
+    () =>
+      post(`/connectors/chaoxing/events/${encodeURIComponent(eventId)}/attachments/${index}/fetch`),
+    '原件已保存，可查看附件或重新识别。',
+  )
 }
 function processedLabel(item: InboxItem) {
   if (item.split_items.length) return `已处理 ${item.split_items.length} 项条目`
@@ -141,7 +163,9 @@ function processedDescription(item: InboxItem) {
   return '这条通知已经处理，重复导入不会再次创建任务。'
 }
 const methodName = (method: string) =>
-  ({ rule: '规则识别', mixed: '规则 + 模型辅助', manual: '手动创建' })[method] || method
+  ({ rule: '规则识别', mixed: '规则 + 模型辅助', manual: '手动创建', legacy: '旧版迁移，待核对' })[
+    method
+  ] || method
 </script>
 <template>
   <div class="ci-pagehead">
@@ -189,9 +213,14 @@ const methodName = (method: string) =>
           {{
             item.split_supported
               ? '多任务通知'
-              : item.fields.title || item.message.text.slice(0, 28)
+              : item.fields.title ||
+                item.message.text.slice(0, 28) ||
+                (item.message.source_context?.platform === 'chaoxing'
+                  ? item.message.source_context.title
+                  : '') ||
+                '原始通知'
           }}</b
-        ><small>{{ item.message.source }} · {{ displayDate(item.message.sent_at) }}</small
+        ><small>{{ item.message.source }} · {{ displayMessageTime(item.message) }}</small
         ><span>{{
           item.status === 'processing'
             ? '正在识别'
@@ -199,32 +228,67 @@ const methodName = (method: string) =>
               ? processedLabel(item)
               : item.status === 'ignored'
                 ? '已忽略'
-                : item.split_items.length
-                  ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
-                  : item.split_supported
-                    ? '多任务待拆分'
-                    : item.action === 'review'
-                      ? '变更待核对'
-                      : item.action === 'ignore'
-                        ? '可能无需创建任务'
-                        : '等待你确认'
+                : item.status === 'archived'
+                  ? '历史归档'
+                  : item.split_items.length
+                    ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
+                    : item.split_supported
+                      ? '多任务待拆分'
+                      : item.action === 'review'
+                        ? '变更待核对'
+                        : item.action === 'ignore'
+                          ? '可能无需创建任务'
+                          : '等待你确认'
         }}</span>
       </button>
     </aside>
     <div class="ci-review">
       <section class="ci-source">
         <div class="ci-sourcehead">📌 原始通知</div>
-        <p class="ci-quote">{{ selected.message.text }}</p>
-        <a
+        <p class="ci-quote">{{ selected.message.text || '原通知正文为空。' }}</p>
+        <div v-if="selected.activity_schedule?.length" class="ci-notice">
+          <strong>原文中的实验安排</strong>
+          <ul>
+            <li v-for="quote in selected.activity_schedule" :key="quote">{{ quote }}</li>
+          </ul>
+        </div>
+        <AttachmentText
           v-for="attachment in selected.message.attachments"
           :key="attachment.id"
-          class="ci-attachmentlink"
-          :href="`/api/attachments/${attachment.id}/download`"
-          >📎 下载原始附件：{{ attachment.filename }}</a
+          :attachment="attachment"
         >
+          <template #actions>
+            <button
+              v-if="selected.status === 'pending' && !selected.split_items.length && !isCheckin"
+              type="button"
+              class="ci-btn ci-text cursor-interaction"
+              :disabled="store.busy"
+              @click="retry"
+            >
+              结合附件重新识别
+            </button>
+          </template>
+        </AttachmentText>
+        <div
+          v-if="
+            selected.message.source_context?.platform === 'chaoxing' &&
+            selected.message.source_context.event_id &&
+            selected.message.source_context.missing_originals?.length
+          "
+        >
+          <button
+            v-for="original in selected.message.source_context.missing_originals"
+            :key="original.index"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="fetchOriginal(selected.message.source_context.event_id, original.index)"
+          >
+            {{ original.recoverable ? '恢复原件' : '补下载原件' }} · {{ original.name }}
+          </button>
+        </div>
         <div class="ci-sourcefoot">
           {{ selected.message.source }}
-          <details v-if="selected.message.source_context">
+          <details v-if="selected.message.source_context?.platform === 'qq'">
             <summary>查看群与发件人详情</summary>
             <p>
               原群名：{{ selected.message.source_context.group_name }}<br />群号：{{
@@ -232,7 +296,32 @@ const methodName = (method: string) =>
               }}<br />发件人 QQ：{{ selected.message.source_context.sender_id }}
             </p>
           </details>
-          <br />发送于 {{ displayDate(selected.message.sent_at, true) }}<br />消息时区：{{
+          <details v-else-if="selected.message.source_context?.platform === 'chaoxing'">
+            <summary>查看学习通来源详情</summary>
+            <p>
+              <template v-if="selected.message.source_context.course"
+                >课程：{{ selected.message.source_context.course }}<br
+              /></template>
+              <template v-if="selected.message.source_context.group_name"
+                >会话：{{ selected.message.source_context.group_name }}<br
+              /></template>
+              <template v-if="selected.message.source_context.sender_name"
+                >发件人：{{ selected.message.source_context.sender_name }}<br
+              /></template>
+              <template v-if="selected.message.source_context.message_id"
+                >原消息编号：{{ selected.message.source_context.message_id }}</template
+              >
+            </p>
+          </details>
+          <details v-else-if="selected.message.source_context?.platform === 'legacy'">
+            <summary>旧版来源</summary>
+            <p>
+              数据集：{{ selected.message.source_context.namespace }} · 原消息编号：{{
+                selected.message.source_context.legacy_id
+              }}
+            </p>
+          </details>
+          <br />发送于 {{ displayMessageTime(selected.message, true) }}<br />消息时区：{{
             selected.message.timezone
           }}<br />{{ methodName(selected.method) }}
         </div>
@@ -247,7 +336,7 @@ const methodName = (method: string) =>
           <h3>识别依据</h3>
           <p v-for="(value, key) in selected.evidence" :key="key">
             <b>{{
-              key === 'due_at'
+              key === 'due_at' || key === 'due_date'
                 ? '截止时间'
                 : key === 'title'
                   ? '任务名称'
@@ -314,6 +403,29 @@ const methodName = (method: string) =>
             >查看任务 →</RouterLink
           ></template
         >
+        <template v-else-if="selected.status === 'archived'">
+          <h3>📂 历史归档，原文仍在</h3>
+          <p v-if="!selected.warnings.length" class="ci-notice">请核对后决定是否恢复处理。</p>
+          <ul v-if="selected.warnings.length" class="ci-warnings">
+            <li v-for="warning in selected.warnings" :key="warning">{{ warning }}</li>
+          </ul>
+          <button
+            v-if="
+              selected.message.source_context?.platform !== 'chaoxing' ||
+              !selected.message.source_context.closed_task_status
+            "
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="
+              store.mutate(
+                () => post(`/suggestions/${selected!.id}/restore-archive`),
+                '已恢复到待处理。',
+              )
+            "
+          >
+            恢复为待处理
+          </button>
+        </template>
         <template v-else-if="selected.status === 'ignored'"
           ><h3>📂 已忽略，原文仍在</h3>
           <button
@@ -345,7 +457,7 @@ const methodName = (method: string) =>
               v-for="task in selected.matched_tasks"
               :key="task.id"
               :to="`/tasks/${task.id}`"
-              >{{ task.title }} · {{ displayDate(task.due_at) }} ↗</RouterLink
+              >{{ task.title }} · {{ displayDeadline(task) }} ↗</RouterLink
             >
           </div>
           <CancellationReview
@@ -431,6 +543,7 @@ const methodName = (method: string) =>
               忽略这条建议
             </button>
             <button
+              v-if="!isCheckin"
               class="ci-btn ci-text ci-retry cursor-interaction"
               :disabled="store.busy"
               @click="retry"

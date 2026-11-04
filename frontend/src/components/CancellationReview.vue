@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  displayDate,
+  displayDeadline,
   post,
   statusNames,
   type CancellationPreview,
@@ -17,9 +17,11 @@ const targetId = ref('')
 const preview = ref<CancellationPreview | null>(null)
 const previewing = ref(false)
 const error = ref('')
-const active = computed(() => store.tasks.filter((t) => ['todo', 'in_progress'].includes(t.status)))
+const active = computed(() =>
+  store.tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+)
 const candidates = computed(() =>
-  props.item.matched_tasks.filter((t) => ['todo', 'in_progress'].includes(t.status)),
+  props.item.matched_tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
 )
 const others = computed(() =>
   active.value.filter((t) => !candidates.value.some((c) => c.id === t.id)),
@@ -121,7 +123,7 @@ async function refreshContext() {
     <section v-if="preview" class="ci-deadline-preview" aria-label="取消任务预览">
       <h3>📌 {{ preview.task.title }}</h3>
       <p class="ci-notice ci-before">
-        {{ preview.task.course || '待分类' }} · {{ displayDate(preview.task.due_at, true) }}
+        {{ preview.task.course || '待分类' }} · {{ displayDeadline(preview.task, true) }}
       </p>
       <dl class="ci-datecomparison">
         <div>

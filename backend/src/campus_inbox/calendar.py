@@ -5,17 +5,28 @@ from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from campus_inbox.models import Task, now
 from campus_inbox.schemas import CalendarFeed, TaskRead
 
 CalendarScope = Literal[
-    "active", "all", "todo", "in_progress", "completed", "cancelled", "archived"
+    "active",
+    "all",
+    "todo",
+    "in_progress",
+    "done",
+    "submitted",
+    "completed",
+    "cancelled",
+    "archived",
 ]
 STATUS_NAMES = {
     "todo": "待办",
     "in_progress": "进行中",
+    "done": "已做完",
+    "submitted": "已提交",
     "completed": "已完成",
     "cancelled": "已取消",
     "archived": "已归档",
@@ -38,7 +49,7 @@ def feed(
         raise HTTPException(422, "日期超出当前时区可转换范围。") from exc
     query = select(Task)
     if status == "active":
-        query = query.where(Task.status.in_(["todo", "in_progress"]))
+        query = query.where(Task.status.in_(["todo", "in_progress", "done"]))
     elif status == "all":
         query = query.where(Task.status != "archived")
     else:
@@ -46,16 +57,32 @@ def feed(
     if course:
         query = query.where(Task.course == course)
     dated = session.exec(
-        query.where(Task.due_at >= lower, Task.due_at < upper).order_by(Task.due_at, Task.id)
+        query.where(
+            or_(
+                and_(Task.due_at >= lower, Task.due_at < upper),
+                and_(Task.due_date >= start, Task.due_date < end),
+            )
+        )
     ).all()
     undated = session.exec(
-        query.where(Task.due_at.is_(None)).order_by(Task.created_at, Task.id)
+        query.where(Task.due_at.is_(None), Task.due_date.is_(None)).order_by(
+            Task.created_at, Task.id
+        )
     ).all()
+    task_reads = [TaskRead.model_validate(task) for task in dated]
+    task_reads.sort(
+        key=lambda task: (
+            task.due_date or task.due_at.astimezone(zone).date(),
+            task.due_at is not None,
+            task.due_at or datetime.min.replace(tzinfo=UTC),
+            task.id,
+        )
+    )
     return CalendarFeed(
         start=start,
         end=end,
         timezone=timezone,
-        tasks=[TaskRead.model_validate(task) for task in dated],
+        tasks=task_reads,
         undated=[TaskRead.model_validate(task) for task in undated],
     )
 
@@ -98,7 +125,11 @@ def export(result: CalendarFeed, stamp: datetime | None = None) -> bytes:
     ]
     for task in result.tasks:
         status = STATUS_NAMES[task.status]
-        prefix = f"[{status}] " if task.status in {"completed", "cancelled", "archived"} else ""
+        prefix = (
+            f"[{status}] "
+            if task.status in {"done", "submitted", "completed", "cancelled", "archived"}
+            else ""
+        )
         summary = f"{prefix}{task.course + ' · ' if task.course else ''}{task.title}"
         details = ["CampusInbox 任务截止时间", f"状态：{status}"]
         for label, value in [
@@ -119,7 +150,9 @@ def export(result: CalendarFeed, stamp: datetime | None = None) -> bytes:
                 f"SEQUENCE:{task.version}",
                 f"CREATED:{utc(task.created_at)}",
                 f"LAST-MODIFIED:{utc(task.updated_at)}",
-                f"DTSTART:{utc(task.due_at)}",
+                f"DTSTART;VALUE=DATE:{task.due_date:%Y%m%d}"
+                if task.due_date
+                else f"DTSTART:{utc(task.due_at)}",
                 f"SUMMARY:{text(summary)}",
                 f"DESCRIPTION:{text(chr(10).join(details))}",
                 "TRANSP:TRANSPARENT",

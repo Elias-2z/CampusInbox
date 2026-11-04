@@ -144,6 +144,31 @@ async def test_api_selection_inbox_and_key_never_returned_or_stored_in_db(contex
     assert (await client.get("/api/settings/model")).json()["base_url"] == "http://127.0.0.1:11434"
 
 
+async def test_chaoxing_intake_and_retry_keep_using_local_model_in_api_mode(context):
+    client, _, calls, app, _, _ = context
+    await enable(client)
+    local = (await client.get("/api/settings/model")).json()
+    response = await client.put(
+        "/api/settings/model", json={**local, "enabled": True, "model": "local:test"}
+    )
+    assert response.status_code == 200, response.text
+    intake = app.state.chaoxing.intake
+    event_id, _ = intake.receive(
+        "synthetic-account",
+        {
+            "kind": "course_notice",
+            "message_id": "synthetic-notice",
+            "captured_at": "2026-11-04T12:00:00+08:00",
+            "text": "请提交报告，时间待定。",
+        },
+    )
+    assert intake.process(event_id) == "done"
+    [item] = (await client.get("/api/inbox")).json()
+    response = await client.post(f"/api/inbox/{item['id']}/analyze")
+    assert response.status_code == 200, response.text
+    assert Local.calls == 2 and not calls
+
+
 async def test_switch_back_local_preserves_each_mode_and_does_not_call_api(context):
     client, _, calls, _, _, _ = context
     await enable(client)

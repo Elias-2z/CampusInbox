@@ -228,9 +228,11 @@ async def test_unsupported_notification_cannot_be_forced_into_deadline_change(cl
     assert response.status_code in {409, 422}
 
 
-async def test_missing_time_requires_manual_entry_and_missing_old_deadline_can_be_restored(client):
+async def test_ambiguous_date_requires_manual_entry_and_missing_old_deadline_can_be_restored(
+    client,
+):
     original = await task(client, due_at=None)
-    item = await notice(client, "数据库原理：实验四报告延期，下周一截止。")
+    item = await notice(client, "数据库原理：实验四报告延期，下周一或下周二截止。")
     url = f"/api/suggestions/{item['id']}/deadline-preview"
     assert (await client.post(url, json={"task_id": original["id"]})).status_code == 422
     proposal = await preview(client, item, original, due_at="2026-11-02T20:00:00+08:00")

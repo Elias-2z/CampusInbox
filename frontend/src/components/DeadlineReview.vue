@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  displayDate,
+  displayDeadline,
   localInput,
   post,
   type DeadlineChange,
@@ -15,35 +15,43 @@ const store = useCampus()
 const router = useRouter()
 const targetId = ref('')
 const due = ref('')
+const dueDate = ref('')
 const preview = ref<DeadlinePreview | null>(null)
 const previewing = ref(false)
 const error = ref('')
-const active = computed(() => store.tasks.filter((t) => ['todo', 'in_progress'].includes(t.status)))
+const active = computed(() =>
+  store.tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+)
 const candidates = computed(() =>
-  props.item.matched_tasks.filter((t) => ['todo', 'in_progress'].includes(t.status)),
+  props.item.matched_tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
 )
 const others = computed(() =>
   active.value.filter((t) => !candidates.value.some((c) => c.id === t.id)),
 )
 const target = computed(() => active.value.find((t) => t.id === targetId.value))
-const manualDue = computed(() => due.value !== localInput(props.item.fields.due_at ?? null))
+const manualDue = computed(
+  () =>
+    due.value !== localInput(props.item.fields.due_at ?? null) ||
+    dueDate.value !== (props.item.fields.due_date ?? ''),
+)
 const stale = computed(() => preview.value && target.value?.version !== preview.value.task.version)
 watch(
   () => [props.item.id, props.item.updated_at],
   () => {
     targetId.value = candidates.value.length === 1 ? candidates.value[0]!.id : ''
     due.value = localInput(props.item.fields.due_at ?? null)
+    dueDate.value = props.item.fields.due_date ?? ''
     preview.value = null
     error.value = ''
   },
   { immediate: true },
 )
-watch([targetId, due], () => {
+watch([targetId, due, dueDate], () => {
   preview.value = null
   error.value = ''
 })
 async function createPreview() {
-  if (!targetId.value || !due.value) return
+  if (!targetId.value || (!due.value && !dueDate.value)) return
   previewing.value = true
   error.value = ''
   preview.value = null
@@ -51,16 +59,19 @@ async function createPreview() {
   const revision = props.item.updated_at
   const selection = targetId.value
   const proposed = due.value
+  const proposedDate = dueDate.value
   try {
     const result = await post<DeadlinePreview>(`/suggestions/${id}/deadline-preview`, {
       task_id: selection,
-      due_at: new Date(proposed).toISOString(),
+      due_at: proposed ? new Date(proposed).toISOString() : null,
+      due_date: proposedDate || null,
     })
     if (
       props.item.id === id &&
       props.item.updated_at === revision &&
       targetId.value === selection &&
-      due.value === proposed
+      due.value === proposed &&
+      dueDate.value === proposedDate
     )
       preview.value = result
   } catch (e) {
@@ -99,6 +110,16 @@ async function refreshContext() {
       还没有待办或进行中的任务可关联。请先创建原任务，或忽略这条建议。
     </div>
     <form v-else @submit.prevent="createPreview">
+      <label class="ci-field">
+        新的截止日期（没有具体时间时填写）
+        <input
+          v-model="dueDate"
+          type="date"
+          class="ci-input"
+          :disabled="store.busy || previewing"
+          @input="due = ''"
+        />
+      </label>
       <label class="ci-field"
         >要更新哪项任务？
         <select v-model="targetId" class="ci-input" required :disabled="store.busy || previewing">
@@ -127,18 +148,18 @@ async function refreshContext() {
           v-model="due"
           type="datetime-local"
           class="ci-input"
-          required
+          @input="dueDate = ''"
           :disabled="store.busy || previewing"
         />
         <small class="ci-evidence">{{
-          item.evidence.due_at?.quote
-            ? `${manualDue ? '已手动调整，请核对。原文：' : '原文依据：'}${item.evidence.due_at.quote}`
+          (item.evidence.due_at || item.evidence.due_date)?.quote
+            ? `${manualDue ? '已手动调整，请核对。原文：' : '原文依据：'}${(item.evidence.due_at || item.evidence.due_date)?.quote}`
             : '请根据原文明确填写具体日期和时刻，不默认补成当天结束。'
         }}</small>
       </label>
       <button
         class="ci-btn cursor-interaction"
-        :disabled="store.busy || previewing || !targetId || !due"
+        :disabled="store.busy || previewing || !targetId || (!due && !dueDate)"
       >
         {{ previewing ? '正在核对…' : preview ? '重新预览 ↻' : '预览这次变更 →' }}
       </button>
@@ -149,11 +170,18 @@ async function refreshContext() {
       <dl class="ci-datecomparison">
         <div>
           <dt>原截止时间</dt>
-          <dd>{{ displayDate(preview.task.due_at, true) }}</dd>
+          <dd>{{ displayDeadline(preview.task, true) }}</dd>
         </div>
         <div>
           <dt>建议改为</dt>
-          <dd>{{ displayDate(preview.proposed_due_at, true) }}</dd>
+          <dd>
+            {{
+              displayDeadline(
+                { due_at: preview.proposed_due_at, due_date: preview.proposed_due_date },
+                true,
+              )
+            }}
+          </dd>
         </div>
       </dl>
       <ul v-if="preview.warnings.length" class="ci-warnings">

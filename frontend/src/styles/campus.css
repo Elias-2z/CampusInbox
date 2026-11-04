@@ -905,6 +905,9 @@ a {
   overflow: visible;
 }
 .app-root .ci-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   padding: 22px 28px 18px;
   background: var(--ci-paper);
 }
@@ -1227,6 +1230,31 @@ a {
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   gap: 24px;
   max-width: 950px;
+}
+.app-root .ci-chaoxing-qr {
+  margin-top: 18px;
+}
+.app-root .ci-chaoxing-qr img {
+  display: block;
+  width: 180px;
+  max-width: 100%;
+  height: auto;
+}
+.app-root .ci-chaoxing-events {
+  margin-top: 22px;
+}
+.app-root .ci-chaoxing-event {
+  border-top: 1px solid var(--ci-line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.app-root .ci-chaoxing-event summary {
+  font-weight: 700;
+}
+.app-root .ci-chaoxing-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 8px 0;
 }
 .app-root .ci-proberesult {
   margin-top: 20px;

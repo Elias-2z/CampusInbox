@@ -13,7 +13,9 @@
     "format": "prettier --write .",
     "lint:check": "oxlint . && eslint .",
     "format:check": "prettier --check .",
+    "test": "node --test tests/*.test.mjs",
     "test:calendar": "node --test tests/calendar.test.mjs",
+    "test:today": "node --test tests/today.test.mjs",
     "test:inbox": "node --test tests/inbox-refresh.test.mjs"
   },
   "dependencies": {

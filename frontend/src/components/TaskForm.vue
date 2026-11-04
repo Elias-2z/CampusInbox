@@ -5,7 +5,7 @@ defineProps<{ busy?: boolean; evidence?: Record<string, Evidence> }>()
 const provenance = (field: Evidence | undefined) =>
   !field
     ? ''
-    : `${field.method === 'connector' ? '群课程设置' : field.method === 'rule' ? '规则依据' : field.method === 'user' ? '用户填写' : '模型辅助'}：${field.quote}`
+    : `${field.method === 'attachment' ? '附件依据' : field.method === 'connector' ? '平台来源' : field.method === 'rule' ? '规则依据' : field.method === 'user' ? '用户填写' : '模型辅助'}：${field.quote}`
 </script>
 <template>
   <fieldset class="ci-fieldset" :disabled="busy">
@@ -38,7 +38,23 @@ const provenance = (field: Evidence | undefined) =>
       >
     </div>
     <label class="ci-field"
-      >截止时间<input v-model="model.due_at" type="datetime-local" class="ci-input" />
+      >截止日期（没有具体时间时填写）<input
+        v-model="model.due_date"
+        type="date"
+        class="ci-input"
+        @input="model.due_at = null"
+      />
+      <small v-if="evidence?.due_date" class="ci-evidence">{{
+        provenance(evidence.due_date)
+      }}</small>
+    </label>
+    <label class="ci-field"
+      >截止时间<input
+        v-model="model.due_at"
+        type="datetime-local"
+        class="ci-input"
+        @input="model.due_date = null"
+      />
       <small class="ci-evidence">{{
         evidence?.due_at ? provenance(evidence.due_at) : '没有明确时间可以留空，之后再补充。'
       }}</small>

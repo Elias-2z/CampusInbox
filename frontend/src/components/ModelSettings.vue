@@ -254,7 +254,7 @@ async function test() {
               type="checkbox"
               :required="config.api.enabled"
             />我确认：启用 API
-            后，需要模型识别的通知原文、群名、发件人显示名和发送时间会发送到上述服务，可能产生费用。</label
+            后，需要模型识别的手动导入通知原文、发送时间和时区会发送到上述服务，可能产生费用。</label
           >
           <p class="ci-notice">
             测试仅发送固定的合成文本，不发送已有通知；测试也可能消耗少量额度。更换地址或模型后需重新确认。

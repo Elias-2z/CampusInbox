@@ -5,8 +5,8 @@
 ## 四种方式
 
 - 文本粘贴：保存原文和实际发送时间，进入现有规则／本地模型识别及收件箱审核。
-- 图片上传：PNG / JPG / JPEG / WebP，通过 MinerU 云端解析；可预览所选图片。
-- 文件上传：TXT / Markdown 在本机读取（UTF-8 / GB18030）；PDF / DOC / DOCX / PPT / PPTX 通过 MinerU 云端解析。不支持任意格式或压缩包上传。
+- 图片上传：PNG / JPG / JPEG / WebP 可选择 Windows 本机 OCR 或 MinerU 云端解析；BMP 支持 Windows 本机 OCR。可预览所选图片。
+- 文件上传：TXT / Markdown 在本机读取（UTF-8 / GB18030），DOCX 可本机提取正文；PDF 可选择 Windows 本机 OCR 或 MinerU，DOC / PPT / PPTX 使用 MinerU。不支持任意格式或压缩包上传。
 - 手动填写：复用任务表单，直接创建正式任务，不再重复审核。
 
 附件解析只提取文字，不创建任务。用户校正文本、核对消息时间后提交，再进入原有审核链路。延期、取消、编号多任务与重复通知沿用现有审核，不强制按新任务创建。
@@ -26,6 +26,9 @@ MINERU_API_KEY=填写你的Token
 ## 数据与恢复
 
 - 单文件不超过 20 MB；原文件使用服务端生成的 ID 保存到数据库文件旁的 `uploads/`，原始文件名仅作元数据和下载名称。
+- Windows 本机 OCR 上限 8 MB，依赖已安装的 Windows OCR 语言。支持最多 30 页的 PDF，按页处理且受运行时间限制，不完整时会明确提示。失败后保留原文件，可本机重试。改用云端需要单独同意。
+- DOCX 本机解析上限 8 MB，仅提取正文文字，图片等内容需对照原件；失败后保留原文件，改用云端须单独同意。
+- 学习通同步开启时，已下载并关联通知的 DOCX 会排队进行本机解析；服务中断后可续处理，主项目此前保存但未解析的学习通附件也会补入队列。刷新通知列表后可查看解析结果；在收件箱点击“重新识别”，单份完整附件可补充任务建议并显示依据，仍需人工确认。多个附件、任务名称不一致及相对日期等情况须人工核对。
 - 新增 Attachment 表，不修改已有表字段。保存原始附件、提取文本、解析状态、远端批次标识和关联消息。
 - 解析中的文件可关闭窗口，之后从“最近上传”继续查询；服务重启后可用已保存的批次继续，不重复提交云端任务。上传中断后保留原文件并支持重试。
 - 暂时断网时保留原批次继续查询；MinerU 明确返回任务过期／不存在时，重新解析会提交新批次。并发重试只提交一次，旧批次迟到的成功或失败结果不能覆盖新批次状态。
@@ -35,11 +38,13 @@ MINERU_API_KEY=填写你的Token
 
 ## API
 
-- `GET /api/imports/capabilities`：支持格式、上传上限、是否配置 MinerU；不返回凭据。
-- `POST /api/imports/files?filename=...&consent=true`：请求体为原文件二进制；云端格式需要 consent。返回附件和解析状态。
+- `GET /api/imports/capabilities`：支持格式、上传上限、本机 OCR 和 DOCX 解析是否可用、是否配置 MinerU；不返回凭据。
+- `POST /api/imports/files?filename=...&extractor=local`：本机解析 DOCX，或本机 OCR 图片、PDF；默认 `extractor=cloud`，云端格式需要 `consent=true`。请求体为原文件二进制。
 - `GET /api/imports/files`：最近 20 条尚未提交的附件。
 - `POST /api/imports/files/{id}/poll`：查询云端进度，完成后取得提取文本。
-- `POST /api/imports/files/{id}/retry`：重试失败或中断的上传；已存在批次时继续查询。
+- `POST /api/imports/files/{id}/retry`：重试失败或中断的云端上传；本机上传的文件改用云端时需要 `consent=true`。
+- `POST /api/imports/files/{id}/local-ocr`：对已保存的失败 DOCX、图片或 PDF 进行本机解析，不会上传云端。
+- `GET /api/attachments/{id}/text`：查看已提取文字与解析状态。
 - `GET /api/attachments/{id}/download`：下载原文件。
 - `POST /api/inbox`：增加可选 `attachment_id`，只允许提交已解析附件，关联后复用原有通知识别。
 

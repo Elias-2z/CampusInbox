@@ -22,6 +22,7 @@ export const useCampus = defineStore('campus', () => {
   const error = ref('')
   const notice = ref('')
   const importing = ref(false)
+  const chatImportSource = ref<'微信' | 'QQ' | null>(null)
   const editorOpen = ref(false)
   const editorTask = ref<Task | null>(null)
   const clock = ref(Date.now())
@@ -79,7 +80,7 @@ export const useCampus = defineStore('campus', () => {
     inbox.value.filter((i) => ['pending', 'processing'].includes(i.status)),
   )
   const active = computed(() =>
-    tasks.value.filter((t) => ['todo', 'in_progress'].includes(t.status)),
+    tasks.value.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
   )
   let undoAction: (() => Promise<unknown>) | null = null
   const canUndo = ref(false)
@@ -161,10 +162,15 @@ export const useCampus = defineStore('campus', () => {
     const action = undoAction
     if (action) await mutate(action, '已恢复到上一步，操作记录已保留。')
   }
+  function openImport(source: '微信' | 'QQ' | null = null) {
+    error.value = ''
+    chatImportSource.value = source
+    importing.value = true
+  }
   function edit(task: Task | null = null) {
     error.value = ''
     if (!task) {
-      importing.value = true
+      openImport()
       return
     }
     editorTask.value = task
@@ -270,6 +276,8 @@ export const useCampus = defineStore('campus', () => {
     error,
     notice,
     importing,
+    chatImportSource,
+    openImport,
     editorOpen,
     editorTask,
     clock,

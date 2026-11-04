@@ -56,6 +56,23 @@ def test_remote_model_is_never_sent_a_notification():
     assert calls == ["/api/tags"]
 
 
+def test_task_answer_uses_same_local_model_checks_without_tools():
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "local:4b"}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"model_info": {"x": 1}})
+        body = json.loads(request.content)
+        assert "tools" not in body and body["stream"] is False
+        assert json.loads(body["messages"][1]["content"])["tasks"] == [{"number": 1}]
+        return httpx.Response(
+            200, json={"message": {"content": '{"answer":"查看任务详情。","references":[1]}'}}
+        )
+
+    answer = provider(handler).answer_tasks("需要提交什么？", [{"number": 1}], "2026-11-04")
+    assert answer.references == [1]
+
+
 def test_remote_alias_is_rejected_by_show_metadata():
     def handler(request):
         if request.url.path == "/api/tags":

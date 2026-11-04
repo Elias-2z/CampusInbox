@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { request } from '@/api'
+import type { ChaoxingStatus } from '@/chaoxing'
 import { useCampus } from '@/stores/campus'
 const store = useCampus()
 const qq = ref<{
@@ -9,20 +10,27 @@ const qq = ref<{
 } | null>(null)
 const busy = ref(false)
 const error = ref('')
+const chaoxing = ref<ChaoxingStatus | null>(null)
+const chaoxingError = ref('')
 async function load() {
   busy.value = true
   error.value = ''
+  chaoxingError.value = ''
   try {
-    qq.value = await request('/connectors/qq')
-  } catch (e) {
-    error.value = store.errorMessage(e)
+    const [qqResult, chaoxingResult] = await Promise.allSettled([
+      request<typeof qq.value>('/connectors/qq'),
+      request<ChaoxingStatus>('/connectors/chaoxing'),
+    ])
+    if (qqResult.status === 'fulfilled') qq.value = qqResult.value
+    else error.value = store.errorMessage(qqResult.reason)
+    if (chaoxingResult.status === 'fulfilled') chaoxing.value = chaoxingResult.value
+    else chaoxingError.value = store.errorMessage(chaoxingResult.reason)
   } finally {
     busy.value = false
   }
 }
 onMounted(load)
 const apps = [
-  { id: 'chaoxing', icon: '📚', name: '学习通', hint: '课程作业、考试和课程通知', tone: 'yellow' },
   { id: 'wechat', icon: '💬', name: '微信', hint: '课程群里的通知与补充说明', tone: 'green' },
 ]
 </script>
@@ -68,6 +76,42 @@ const apps = [
         qq?.adapter.connected ? '管理 QQ 连接 →' : '配置 QQ 连接 →'
       }}</RouterLink>
     </article>
+    <article class="ci-connection-card tone-yellow">
+      <div class="ci-connection-icon">📚</div>
+      <div class="ci-connection-cardhead">
+        <h2>学习通</h2>
+        <span
+          class="ci-connection-badge"
+          :class="{ 'is-online': !chaoxingError && chaoxing?.state === 'connected' }"
+          >{{
+            chaoxingError
+              ? '状态未知'
+              : !chaoxing
+                ? '读取中'
+                : chaoxing.state === 'connected'
+                  ? '已连接'
+                  : chaoxing.state === 'partial'
+                    ? '部分可用'
+                    : chaoxing.enabled
+                      ? '正在连接或需处理'
+                      : '未连接'
+          }}</span
+        >
+      </div>
+      <p>课程作业、考试和课程通知。</p>
+      <p class="ci-connection-cardnote">
+        {{
+          chaoxingError
+            ? '进入详情检查连接'
+            : chaoxing?.enabled
+              ? '查看采集范围与待核对消息'
+              : '进入详情扫码连接'
+        }}
+      </p>
+      <RouterLink class="ci-btn ci-primary" to="/settings/connections/chaoxing"
+        >管理学习通连接 →</RouterLink
+      >
+    </article>
     <article
       v-for="app in apps"
       :key="app.id"
@@ -77,11 +121,11 @@ const apps = [
       <div class="ci-connection-icon">{{ app.icon }}</div>
       <div class="ci-connection-cardhead">
         <h2>{{ app.name }}</h2>
-        <span class="ci-connection-badge">暂未接入</span>
+        <span class="ci-connection-badge">手动导入</span>
       </div>
       <p>{{ app.hint }}</p>
-      <p class="ci-connection-cardnote">当前主应用还不能连接此平台</p>
-      <RouterLink class="ci-btn" :to="`/settings/connections/${app.id}`">查看接入说明 →</RouterLink>
+      <p class="ci-connection-cardnote">粘贴一条通知，送到收件箱审核</p>
+      <RouterLink class="ci-btn" :to="`/settings/connections/${app.id}`">导入微信通知 →</RouterLink>
     </article>
   </div>
   <p class="ci-notice ci-connection-footnote">
