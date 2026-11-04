@@ -50,7 +50,8 @@ async function report() {
       </dl>
       <p class="ci-muted">模型配置保存在 .env，修改后重启服务。</p>
       <p class="ci-muted">
-        图片及文档解析需在 .env 设置 MINERU_API_KEY，配置后重新打开新建窗口。上传前会说明数据去向和额度。
+        图片及文档解析需在 .env 设置
+        MINERU_API_KEY，配置后重新打开新建窗口。上传前会说明数据去向和额度。
       </p>
     </section>
     <section class="ci-settings-section">
