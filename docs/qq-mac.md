@@ -12,7 +12,7 @@
 - 复用主应用 QQ 核心的账号／群／成员筛选、去重、持久队列与后台识别，最终进入现有收件箱。
 - 后端正常退出保留桥接启用配置。用户主动断开则暂停检测并停用本适配器，不登出或结束外部 QQ 进程。
 
-这套 HTTP 协议层可以供 Windows 复用；当前配置入口使用 macOS 钥匙串，Windows 需要替换凭据存储模块。适配器不读取另一套 `local-assistant/` 的数据库。
+这套 HTTP 协议层也供 Windows 复用；2026-11-04 已增加 Windows Credential Manager，macOS 继续使用原钥匙串。Windows 操作与验收边界见 [Windows QQ](qq-windows.md)。适配器不读取另一套 `local-assistant/` 的数据库。
 
 ## Mac 前置条件
 

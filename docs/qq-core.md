@@ -1,5 +1,7 @@
 # QQ Connector 核心（平台无关）
 
+2026-11-04：Windows 系统凭据、启动器和平台提示已接入，使用步骤见 [Windows QQ](qq-windows.md)。下文 Windows 待适配的描述为原阶段记录；真实 Windows QQ 群联调仍待用户扫码后验收。
+
 2026-11-02。此模块接入原 FastAPI（8000）与 Vue（5173），使用原数据库和审核流程。与 `local-assistant/` 独立程序中的 OneBot 接收器不是同一入口。
 
 ## 当前交付
