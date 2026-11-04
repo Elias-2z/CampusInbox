@@ -7,6 +7,10 @@ import TaskEditor from '@/components/TaskEditor.vue'
 const store = useCampus()
 const route = useRoute()
 let timer: number | undefined
+let inboxTimer: number | undefined
+function refreshInboxWhenVisible() {
+  if (document.visibilityState === 'visible') void store.refreshInbox()
+}
 function refreshRemindersWhenVisible() {
   if (document.visibilityState === 'visible' && !store.busy && !store.reminderBusy) {
     store.clock = Date.now()
@@ -15,17 +19,23 @@ function refreshRemindersWhenVisible() {
 }
 onMounted(() => {
   void store.initialize()
+  inboxTimer = window.setInterval(refreshInboxWhenVisible, 5000)
   timer = window.setInterval(() => {
     store.clock = Date.now()
     refreshRemindersWhenVisible()
   }, 30000)
   document.addEventListener('visibilitychange', refreshRemindersWhenVisible)
   window.addEventListener('focus', refreshRemindersWhenVisible)
+  document.addEventListener('visibilitychange', refreshInboxWhenVisible)
+  window.addEventListener('focus', refreshInboxWhenVisible)
 })
 onUnmounted(() => {
   window.clearInterval(timer)
+  window.clearInterval(inboxTimer)
   document.removeEventListener('visibilitychange', refreshRemindersWhenVisible)
   window.removeEventListener('focus', refreshRemindersWhenVisible)
+  document.removeEventListener('visibilitychange', refreshInboxWhenVisible)
+  window.removeEventListener('focus', refreshInboxWhenVisible)
 })
 </script>
 <template>

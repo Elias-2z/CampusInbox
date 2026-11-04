@@ -11,4 +11,5 @@ if __name__ == "__main__":
     run("frontend", "npm", "run", "lint:check")
     run("frontend", "npm", "run", "format:check")
     run("frontend", "npm", "run", "test:calendar")
+    run("frontend", "npm", "run", "test:inbox")
     run("frontend", "npm", "run", "build")

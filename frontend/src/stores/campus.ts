@@ -85,6 +85,24 @@ export const useCampus = defineStore('campus', () => {
   const canUndo = ref(false)
   let celebrationTimer: number | undefined
   let refreshVersion = 0
+  let inboxRefreshing = false
+  const inboxRefreshError = '收件箱自动更新失败，请检查连接或手动刷新。'
+  async function refreshInbox() {
+    if (!ready.value || loading.value || busy.value || inboxRefreshing) return
+    inboxRefreshing = true
+    const version = refreshVersion
+    try {
+      const nextInbox = await request<InboxItem[]>('/inbox?status=all')
+      // A completed mutation/full refresh takes precedence over an older poll.
+      if (version !== refreshVersion || busy.value || loading.value) return
+      inbox.value = nextInbox
+      if (error.value === inboxRefreshError) error.value = ''
+    } catch {
+      if (version === refreshVersion && !busy.value && !error.value) error.value = inboxRefreshError
+    } finally {
+      inboxRefreshing = false
+    }
+  }
   async function refresh() {
     const version = ++refreshVersion
     const [nextTasks, nextInbox] = await Promise.all([
@@ -258,6 +276,7 @@ export const useCampus = defineStore('campus', () => {
     celebration,
     canUndo,
     refresh,
+    refreshInbox,
     initialize,
     mutate,
     undo,
