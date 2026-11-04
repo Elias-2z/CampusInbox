@@ -1650,3 +1650,211 @@ a {
     padding: 14px;
   }
 }
+
+/* Settings → sources → individual connection. */
+.app-root .ci-connection-entry {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: 950px;
+  margin-bottom: 28px;
+  padding: 22px 24px;
+  border: 1px solid var(--ci-line);
+  border-radius: var(--ci-radius);
+  background: var(--ci-surface);
+  color: var(--ci-ink);
+  text-decoration: none;
+}
+.app-root .ci-connection-entry:hover {
+  border-color: var(--ci-accent);
+  background: var(--ci-soft);
+}
+.app-root .ci-connection-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  flex-shrink: 0;
+  border-radius: 17px;
+  background: var(--ci-soft);
+  font-size: 28px;
+}
+.app-root .ci-connection-entry-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.app-root .ci-connection-entry-copy strong {
+  font-size: 18px;
+}
+.app-root .ci-connection-entry-copy small {
+  color: var(--ci-muted);
+}
+.app-root .ci-connection-entry-arrow {
+  margin-left: auto;
+  color: var(--ci-accent);
+  font-size: 25px;
+}
+.app-root .ci-connection-breadcrumb {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+  color: var(--ci-muted);
+  font-size: 13px;
+}
+.app-root .ci-connection-breadcrumb a {
+  color: var(--ci-accent);
+  text-decoration: none;
+}
+.app-root .ci-connection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  max-width: 1050px;
+}
+.app-root .ci-connection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 26px;
+  border: 1px solid var(--ci-line);
+  border-radius: 24px;
+  background: var(--ci-surface);
+  min-width: 0;
+}
+.app-root .ci-connection-card h2,
+.app-root .ci-connection-card p {
+  margin: 0;
+}
+.app-root .ci-connection-card > p {
+  color: var(--ci-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.app-root .ci-connection-cardhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.app-root .ci-connection-cardhead h2 {
+  margin: 0;
+  font-size: 21px;
+}
+.app-root .ci-connection-badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: var(--ci-soft);
+  color: var(--ci-muted);
+}
+.app-root .ci-connection-badge.is-online {
+  background: var(--ci-lime);
+  color: #292137;
+}
+.app-root .ci-connection-cardnote {
+  margin-top: auto !important;
+}
+.app-root .ci-connection-card.tone-yellow .ci-connection-icon {
+  background: var(--ci-yellow);
+}
+.app-root .ci-connection-card.tone-green .ci-connection-icon {
+  background: var(--ci-lime);
+}
+.app-root .ci-connection-footnote {
+  margin-top: 24px;
+  max-width: 850px;
+}
+.app-root .ci-connection-empty {
+  max-width: 680px;
+  display: grid;
+  gap: 18px;
+  justify-items: start;
+}
+.app-root .ci-connection-empty h2,
+.app-root .ci-connection-empty p {
+  margin: 0;
+}
+.app-root .ci-connection-picker {
+  border: 1px dashed var(--ci-line);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.app-root .ci-connection-picker summary {
+  cursor: pointer;
+  font-weight: 650;
+  color: var(--ci-accent);
+}
+.app-root .ci-connection-picker .ci-field {
+  margin-top: 16px;
+}
+.app-root .ci-connection-choices {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.app-root .ci-connection-choices .ci-btn {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-connection-scope {
+  padding: 18px;
+  border: 1px solid var(--ci-line);
+  border-radius: 16px;
+  margin-bottom: 14px;
+  background: var(--ci-paper);
+}
+.app-root .ci-connection-scope > summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+.app-root .ci-connection-scope > summary strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.app-root .ci-connection-scope > summary span {
+  font-size: 12px;
+  color: var(--ci-muted);
+}
+.app-root .ci-connection-scope[open] > summary {
+  margin-bottom: 20px;
+}
+.app-root .ci-connection-memberlist {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 18px;
+}
+.app-root .ci-connection-save {
+  margin-top: 20px;
+}
+@media (max-width: 900px) {
+  .app-root .ci-connection-grid {
+    grid-template-columns: 1fr;
+    max-width: 680px;
+  }
+  .app-root .ci-connection-card {
+    padding: 22px;
+  }
+}
+@media (max-width: 480px) {
+  .app-root .ci-connection-entry {
+    padding: 18px;
+    gap: 12px;
+  }
+  .app-root .ci-connection-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+  }
+}

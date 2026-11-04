@@ -222,8 +222,18 @@ const methodName = (method: string) =>
           >📎 下载原始附件：{{ attachment.filename }}</a
         >
         <div class="ci-sourcefoot">
-          {{ selected.message.source }}<br />发送于 {{ displayDate(selected.message.sent_at, true)
-          }}<br />消息时区：{{ selected.message.timezone }}<br />{{ methodName(selected.method) }}
+          {{ selected.message.source }}
+          <details v-if="selected.message.source_context">
+            <summary>查看群与发件人详情</summary>
+            <p>
+              原群名：{{ selected.message.source_context.group_name }}<br />群号：{{
+                selected.message.source_context.group_id
+              }}<br />发件人 QQ：{{ selected.message.source_context.sender_id }}
+            </p>
+          </details>
+          <br />发送于 {{ displayDate(selected.message.sent_at, true) }}<br />消息时区：{{
+            selected.message.timezone
+          }}<br />{{ methodName(selected.method) }}
         </div>
         <div
           v-if="

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import { useCampus } from '@/stores/campus'
 import NewTaskModal from '@/components/NewTaskModal.vue'
 import TaskEditor from '@/components/TaskEditor.vue'
 const store = useCampus()
+const route = useRoute()
 let timer: number | undefined
 function refreshRemindersWhenVisible() {
   if (document.visibilityState === 'visible' && !store.busy && !store.reminderBusy) {
@@ -43,7 +44,13 @@ onUnmounted(() => {
         ><RouterLink to="/calendar" class="ci-nav" active-class="ci-nav-active">🗓️ 日历</RouterLink
         ><RouterLink to="/reminders" class="ci-nav" active-class="ci-nav-active"
           >🔔 提醒 <span class="ci-navcount">{{ store.unreadReminders.length }}</span></RouterLink
-        ><RouterLink to="/settings" class="ci-nav" active-class="ci-nav-active">⚙️ 设置</RouterLink>
+        ><RouterLink
+          to="/settings"
+          class="ci-nav"
+          :class="{ 'ci-nav-active': route.path.startsWith('/settings') }"
+          active-class="ci-nav-active"
+          >⚙️ 设置</RouterLink
+        >
       </nav>
       <span class="ci-demo">LESS CHAOS, MORE CAMPUS</span>
     </header>

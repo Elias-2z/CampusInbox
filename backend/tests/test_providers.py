@@ -104,3 +104,30 @@ def test_truncated_or_thinking_only_response_is_not_accepted(reply, error):
 
     with pytest.raises(ProviderError, match=error):
         provider(handler).generate_structured("通知", "2026-10-30", "Asia/Shanghai")
+
+
+def test_context_is_separate_from_notification_and_excludes_identifiers():
+    def handler(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "local:4b"}]})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"model_info": {"x": 1}})
+        body = json.loads(request.content)
+        data = json.loads(body["messages"][-1]["content"])
+        assert data["notification"] == "明天交报告"
+        assert data["source_context"]["group_name"] == "2026年软件工程三班"
+        assert data["source_context"]["sender_name"] == "老师"
+        assert "group_id" not in data["source_context"]
+        assert data["sent_at"] == "2026-11-02T12:00:00+00:00"
+        return httpx.Response(200, json={"message": {"content": '{"title":"报告"}'}})
+
+    provider(handler).generate_contextual(
+        "明天交报告",
+        "2026-11-02T12:00:00+00:00",
+        "Asia/Shanghai",
+        {
+            "group_name": "2026年软件工程三班",
+            "group_id": "12345",
+            "sender_name": "老师",
+        },
+    )

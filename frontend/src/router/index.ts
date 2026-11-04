@@ -20,6 +20,16 @@ const router = createRouter({
       meta: { title: '设置' },
     },
     {
+      path: '/settings/connections',
+      component: () => import('@/views/ConnectionsView.vue'),
+      meta: { title: '数据源连接' },
+    },
+    {
+      path: '/settings/connections/:provider(qq|chaoxing|wechat)',
+      component: () => import('@/views/ConnectionDetailView.vue'),
+      meta: { title: '应用连接' },
+    },
+    {
       path: '/reminders',
       component: () => import('@/views/RemindersView.vue'),
       meta: { title: '截止提醒' },
