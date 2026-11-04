@@ -15,6 +15,7 @@ import {
 import { useCampus } from '@/stores/campus'
 import AppModal from './AppModal.vue'
 import TaskForm from './TaskForm.vue'
+import { canExtractLocally } from '@/localOcr'
 
 type Mode = 'text' | 'image' | 'file' | 'manual'
 const modes: { id: Mode; icon: string; title: string; hint: string }[] = [
@@ -28,8 +29,10 @@ const router = useRouter()
 const mode = ref<Mode>('text')
 const text = ref('')
 const draft = ref(emptyDraft())
-const source = ref('手动粘贴')
-const sentAt = ref(localInput(new Date().toISOString()))
+const chatSource = store.chatImportSource
+const source = ref(chatSource || '手动粘贴')
+const sentAt = ref(chatSource ? '' : localInput(new Date().toISOString()))
+const unknownTime = ref(false)
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
 const capabilities = ref<ImportCapabilities | null>(null)
 const saved = ref<FileImport[]>([])
@@ -37,6 +40,7 @@ const attachment = ref<FileImport | null>(null)
 const file = ref<File | null>(null)
 const previewUrl = ref('')
 const consent = ref(false)
+const extractor = ref<'local' | 'cloud'>('cloud')
 const uploading = ref(false)
 const polling = ref(false)
 const error = ref('')
@@ -48,15 +52,48 @@ let selection = 0
 let pollCount = 0
 const isUpload = computed(() => mode.value === 'image' || mode.value === 'file')
 const isLocal = computed(() => /\.(txt|md)$/i.test(file.value?.name || ''))
+const localOcrAvailable = computed(
+  () =>
+    !!file.value &&
+    canExtractLocally(
+      file.value.name,
+      file.value.size,
+      !!capabilities.value?.local_ocr,
+      !!capabilities.value?.local_docx,
+    ),
+)
+const localRetryAvailable = computed(
+  () =>
+    !!attachment.value &&
+    canExtractLocally(
+      attachment.value.filename,
+      attachment.value.size,
+      !!capabilities.value?.local_ocr,
+      !!capabilities.value?.local_docx,
+    ),
+)
+const cloudSupported = computed(
+  () => !/\.bmp$/i.test(file.value?.name || attachment.value?.filename || ''),
+)
+const uploadAllowed = computed(
+  () =>
+    isLocal.value ||
+    (extractor.value === 'local'
+      ? localOcrAvailable.value
+      : cloudSupported.value && !!consent.value && !!capabilities.value?.mineru_configured),
+)
 const locked = computed(() => store.busy || uploading.value)
+const submitWithoutTime = computed(() => !!chatSource && mode.value === 'text' && unknownTime.value)
 const canSubmit = computed(
   () =>
     text.value.trim().length >= 2 &&
     text.value.length <= 20000 &&
+    !!source.value.trim() &&
+    (submitWithoutTime.value || Number.isFinite(new Date(sentAt.value).getTime())) &&
     (!isUpload.value || attachment.value?.status === 'ready'),
 )
 const accept = computed(() =>
-  mode.value === 'image' ? '.png,.jpg,.jpeg,.webp' : '.txt,.md,.pdf,.doc,.docx,.ppt,.pptx',
+  mode.value === 'image' ? '.png,.jpg,.jpeg,.webp,.bmp' : '.txt,.md,.pdf,.doc,.docx,.ppt,.pptx',
 )
 
 async function loadSaved() {
@@ -88,6 +125,7 @@ function clearFile() {
   file.value = null
   attachment.value = null
   consent.value = false
+  extractor.value = 'cloud'
   polling.value = false
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -100,7 +138,8 @@ function chooseMode(next: Mode) {
   mode.value = next
   error.value = ''
   store.error = ''
-  source.value = next === 'text' ? '手动粘贴' : next === 'image' ? '图片上传' : '文件上传'
+  source.value =
+    next === 'text' ? chatSource || '手动粘贴' : next === 'image' ? '图片上传' : '文件上传'
 }
 function chooseFile(event: Event) {
   const chosen = (event.target as HTMLInputElement).files?.[0]
@@ -119,6 +158,15 @@ function chooseFile(event: Event) {
     return
   }
   file.value = chosen
+  if (
+    canExtractLocally(
+      chosen.name,
+      chosen.size,
+      !!capabilities.value?.local_ocr,
+      !!capabilities.value?.local_docx,
+    )
+  )
+    extractor.value = 'local'
   if (mode.value === 'image') previewUrl.value = URL.createObjectURL(chosen)
 }
 function applyResult(result: FileImport) {
@@ -151,12 +199,16 @@ function continuePolling() {
 }
 async function upload() {
   if (!file.value || uploading.value) return
-  if (!isLocal.value && (!consent.value || !capabilities.value?.mineru_configured)) return
+  if (!uploadAllowed.value) return
   uploading.value = true
   error.value = ''
   const revision = selection
   try {
-    const query = new URLSearchParams({ filename: file.value.name, consent: String(consent.value) })
+    const query = new URLSearchParams({
+      filename: file.value.name,
+      consent: String(consent.value),
+      extractor: extractor.value,
+    })
     const result = await request<FileImport>(`/imports/files?${query}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
@@ -181,11 +233,15 @@ function resume(item: FileImport) {
   pollCount = 0
   if (item.status === 'parsing') void poll()
 }
-async function retry() {
+async function retry(method: 'cloud' | 'local' = 'cloud') {
   if (!attachment.value) return
   uploading.value = true
   try {
-    applyResult(await post<FileImport>(`/imports/files/${attachment.value.id}/retry`))
+    applyResult(
+      await post<FileImport>(
+        `/imports/files/${attachment.value.id}/${method === 'local' ? 'local-ocr' : `retry?consent=${consent.value}`}`,
+      ),
+    )
     pollCount = 0
     void poll()
   } catch (e) {
@@ -212,7 +268,7 @@ async function submit() {
       post<InboxItem>('/inbox', {
         text: text.value.trim(),
         source: source.value.trim(),
-        sent_at: new Date(sentAt.value).toISOString(),
+        sent_at: submitWithoutTime.value ? null : new Date(sentAt.value).toISOString(),
         timezone,
         attachment_id: isUpload.value ? attachment.value?.id : undefined,
       }),
@@ -260,8 +316,8 @@ async function submit() {
               />
             </label>
             <p class="ci-notice">
-              {{ mode === 'image' ? 'PNG、JPG、WebP' : 'TXT、Markdown、PDF、Word、PPT' }} ·
-              单个文件不超过 20 MB
+              {{ mode === 'image' ? 'PNG、JPG、WebP、BMP' : 'TXT、Markdown、PDF、Word、PPT' }} ·
+              云端上限 20 MB，本机解析上限 8 MB
             </p>
             <img
               v-if="previewUrl"
@@ -275,10 +331,30 @@ async function submit() {
             <template v-if="file && !attachment">
               <p v-if="isLocal" class="ci-notice">文本文件直接在本机读取，不发送到 MinerU。</p>
               <template v-else>
-                <p v-if="!capabilities?.mineru_configured" class="ci-inlineerror" role="status">
+                <div v-if="localOcrAvailable" class="ci-actions">
+                  <label
+                    ><input v-model="extractor" type="radio" value="local" :disabled="locked" />
+                    本机解析</label
+                  >
+                  <label v-if="!/\.bmp$/i.test(file.name)"
+                    ><input v-model="extractor" type="radio" value="cloud" :disabled="locked" />
+                    MinerU 云端解析</label
+                  >
+                </div>
+                <p v-if="extractor === 'local'" class="ci-notice">
+                  文件在本机解析，不发送到云端。请对照原文件核对提取的文字。
+                </p>
+                <p v-if="!localOcrAvailable && !cloudSupported" class="ci-inlineerror">
+                  BMP 需要可用的 Windows 本机 OCR，文件不超过 8 MB。
+                </p>
+                <p
+                  v-if="extractor === 'cloud' && !capabilities?.mineru_configured"
+                  class="ci-inlineerror"
+                  role="status"
+                >
                   尚未配置 MinerU Token。配置后重新打开此窗口；也可以先粘贴文本或手动填写。
                 </p>
-                <label class="ci-checklabel"
+                <label v-if="extractor === 'cloud'" class="ci-checklabel"
                   ><input v-model="consent" type="checkbox" :disabled="locked" />
                   我同意将此文件发送到 MinerU 云端解析，可能消耗账户额度。</label
                 >
@@ -286,10 +362,18 @@ async function submit() {
               <button
                 type="button"
                 class="ci-btn ci-primary"
-                :disabled="locked || (!isLocal && (!consent || !capabilities?.mineru_configured))"
+                :disabled="locked || !uploadAllowed"
                 @click="upload"
               >
-                {{ uploading ? '正在上传…' : isLocal ? '提取文本 →' : '发送到 MinerU 并解析 →' }}
+                {{
+                  uploading
+                    ? '正在提取…'
+                    : isLocal
+                      ? '提取文本 →'
+                      : extractor === 'local'
+                        ? '本机识别 →'
+                        : '发送到 MinerU 并解析 →'
+                }}
               </button>
             </template>
           </div>
@@ -299,7 +383,7 @@ async function submit() {
                 ? '✅ 文本已提取，请校正后继续'
                 : attachment.status === 'failed'
                   ? '解析未完成'
-                  : '⏳ MinerU 正在解析…'
+                  : '⏳ 正在解析…'
             }}</b>
             <a class="ci-attachmentlink" :href="`/api/attachments/${attachment.id}/download`"
               >📎 {{ attachment.filename }} · 下载原文件</a
@@ -316,14 +400,33 @@ async function submit() {
             >
               {{ polling ? '正在查询…' : '继续查询进度' }}
             </button>
+            <label
+              v-if="
+                (attachment.status === 'failed' || (attachment.status === 'parsing' && error)) &&
+                cloudSupported &&
+                capabilities?.mineru_configured
+              "
+              class="ci-checklabel"
+              ><input v-model="consent" type="checkbox" :disabled="locked" />我同意将文件发送到
+              MinerU 云端解析。</label
+            >
             <button
               v-if="attachment.status === 'failed' || (attachment.status === 'parsing' && error)"
               type="button"
               class="ci-btn"
-              :disabled="locked"
-              @click="retry"
+              :disabled="locked || !consent || !cloudSupported || !capabilities?.mineru_configured"
+              @click="retry('cloud')"
             >
-              重新解析
+              使用 MinerU 重新解析
+            </button>
+            <button
+              v-if="attachment.status === 'failed' && localRetryAvailable"
+              type="button"
+              class="ci-btn"
+              :disabled="locked"
+              @click="retry('local')"
+            >
+              用本机解析重试
             </button>
           </section>
           <details v-if="saved.length" class="ci-recentfiles">
@@ -389,13 +492,21 @@ async function submit() {
               >消息实际发送时间<input
                 v-model="sentAt"
                 type="datetime-local"
-                required
+                :required="!submitWithoutTime"
                 class="ci-input"
-                :disabled="locked"
+                :disabled="locked || submitWithoutTime"
             /></label>
           </div>
+          <label v-if="chatSource && mode === 'text'" class="ci-checklabel">
+            <input v-model="unknownTime" type="checkbox" :disabled="locked" />
+            不清楚发送时间
+          </label>
           <p class="ci-notice ci-before">
-            以消息发送时间解释“明天 / 下周”。当前时区：{{ timezone }}。
+            <template v-if="chatSource && mode === 'text'">
+              可在来源名称补充群名和发件人，例如“{{ chatSource }} · 软件工程群 · 任课教师”。
+            </template>
+            <template v-if="submitWithoutTime">请在审核时对照原文手动填写截止时间。</template>
+            <template v-else>以消息发送时间解释“明天 / 下周”。当前时区：{{ timezone }}。</template>
           </p>
         </template>
       </template>

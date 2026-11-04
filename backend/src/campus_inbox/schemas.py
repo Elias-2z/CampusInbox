@@ -5,9 +5,11 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-TaskStatus = Literal["todo", "in_progress", "completed", "cancelled", "archived"]
+TaskStatus = Literal[
+    "todo", "in_progress", "done", "submitted", "completed", "cancelled", "archived"
+]
 TaskKind = Literal["homework", "exam", "event", "other"]
 
 
@@ -25,7 +27,7 @@ class ReadModel(BaseModel):
 class ImportMessage(BaseModel):
     text: str = Field(min_length=2, max_length=20000)
     source: str = Field(default="手动粘贴", min_length=1, max_length=100)
-    sent_at: datetime
+    sent_at: datetime | None
     timezone: str = "Asia/Shanghai"
     attachment_id: str | None = None
 
@@ -38,8 +40,8 @@ class ImportMessage(BaseModel):
 
     @field_validator("sent_at")
     @classmethod
-    def require_timezone(cls, value: datetime) -> datetime:
-        if value.tzinfo is None:
+    def require_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
             raise ValueError("发送时间必须包含时区")
         return value
 
@@ -60,6 +62,7 @@ class TaskFields(BaseModel):
     kind: TaskKind = "other"
     description: str = Field(default="", max_length=20000)
     due_at: datetime | None = None
+    due_date: date | None = None
     submission_platform: str = Field(default="", max_length=100)
     submission_method: str = Field(default="", max_length=300)
     file_requirements: str = Field(default="", max_length=2000)
@@ -80,6 +83,23 @@ class TaskFields(BaseModel):
             raise ValueError("截止时间必须包含时区")
         return value
 
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def due_date_is_date(cls, value):
+        if (
+            isinstance(value, datetime)
+            or (value is not None and not isinstance(value, (str, date)))
+            or (isinstance(value, str) and len(value) != 10)
+        ):
+            raise ValueError("仅日期截止须使用 YYYY-MM-DD，不包含时间")
+        return value
+
+    @model_validator(mode="after")
+    def one_deadline(self):
+        if self.due_at is not None and self.due_date is not None:
+            raise ValueError("截止日期与截止时间只能填写一项")
+        return self
+
 
 class AcceptSuggestion(TaskFields):
     allow_duplicate: bool = False
@@ -94,6 +114,7 @@ class TaskRead(ReadModel):
     kind: TaskKind
     description: str
     due_at: Timestamp | None
+    due_date: date | None = None
     status: TaskStatus
     submission_platform: str
     submission_method: str
@@ -103,6 +124,10 @@ class TaskRead(ReadModel):
     version: int
     created_at: Timestamp
     updated_at: Timestamp
+
+
+class TaskListItem(TaskRead):
+    checkin_closed: bool
 
 
 class TaskUpdate(TaskFields):
@@ -126,7 +151,7 @@ class MessageRead(ReadModel):
     id: str
     text: str
     source: str
-    sent_at: Timestamp
+    sent_at: Timestamp | None
     timezone: str
     received_at: Timestamp
     attachments: list[AttachmentInfo] = Field(default_factory=list)
@@ -147,6 +172,7 @@ class DeadlinePreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task_id: str
     due_at: datetime | None = None
+    due_date: date | None = None
 
     @field_validator("due_at")
     @classmethod
@@ -155,12 +181,24 @@ class DeadlinePreviewRequest(BaseModel):
             raise ValueError("截止时间必须包含时区")
         return value
 
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def date_only(cls, value):
+        return TaskFields.due_date_is_date(value)
+
+    @model_validator(mode="after")
+    def one_deadline(self):
+        if self.due_at is not None and self.due_date is not None:
+            raise ValueError("截止日期与截止时间只能填写一项")
+        return self
+
 
 class DeadlinePreview(BaseModel):
     id: str
     suggestion_id: str
     task: TaskRead
-    proposed_due_at: Timestamp
+    proposed_due_at: Timestamp | None
+    proposed_due_date: date | None = None
     warnings: list[str]
     evidence: dict
     created_at: Timestamp
@@ -199,6 +237,7 @@ MergeField = Literal[
     "kind",
     "description",
     "due_at",
+    "due_date",
     "submission_platform",
     "submission_method",
     "file_requirements",
@@ -210,7 +249,7 @@ MergeField = Literal[
 class MergePreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task_id: str = Field(min_length=1)
-    fields: list[MergeField] = Field(default_factory=list, max_length=10)
+    fields: list[MergeField] = Field(default_factory=list, max_length=11)
 
 
 class MergePreview(BaseModel):
@@ -234,8 +273,30 @@ class MergeChangeRead(BaseModel):
     can_undo: bool
 
 
+class MaterialItem(BaseModel):
+    text: str = Field(min_length=1, max_length=200)
+    done: bool = False
+
+    @field_validator("text")
+    @classmethod
+    def nonblank(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("材料名称不能为空")
+        return value
+
+
+class MaterialsUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
+    items: list[MaterialItem] = Field(max_length=100)
+
+
 class TaskDetail(BaseModel):
+    legacy: dict | None = None
     task: TaskRead
+    platform_observation: dict | None = None
+    checkin_closed: bool = False
+    materials: list[MaterialItem] = Field(default_factory=list)
     source: MessageRead
     sources: list[MessageRead]
     deadline_changes: list[DeadlineChangeRead]
@@ -244,6 +305,11 @@ class TaskDetail(BaseModel):
     events: list[EventRead]
     evidence: dict
     method: str
+
+
+class PlatformStatusUpdate(BaseModel):
+    expected_version: int = Field(ge=1)
+    observation_id: str = Field(min_length=1, max_length=100)
 
 
 class SplitDraftRead(ReadModel):
@@ -296,13 +362,14 @@ class SplitDecision(BaseModel):
 
 class InboxItem(BaseModel):
     id: str
-    status: Literal["processing", "pending", "accepted", "ignored"]
+    status: Literal["processing", "pending", "accepted", "ignored", "archived"]
     action: Literal["create", "review", "ignore"]
     method: str
     fields: dict
     evidence: dict
     warnings: list[str]
     message: MessageRead
+    activity_schedule: list[str] = Field(default_factory=list)
     matched_tasks: list[TaskRead]
     task_id: str | None = None
     updated_at: Timestamp
@@ -355,7 +422,8 @@ class ReminderRead(BaseModel):
     task: TaskRead
     phase: Literal["upcoming", "overdue"]
     status: Literal["unread", "read", "snoozed"]
-    due_at: Timestamp
+    due_at: Timestamp | None
+    due_date: date | None = None
     read_at: Timestamp | None
     snoozed_until: Timestamp | None
     version: int

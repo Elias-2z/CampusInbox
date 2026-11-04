@@ -19,7 +19,13 @@ PROGRESS_TIMEOUT=300
 MAX_RESTARTS=5
 
 def atomic(path,raw):
-    temporary=path.with_suffix(path.suffix+'.tmp');temporary.write_bytes(raw);temporary.replace(path)
+    temporary=path.with_suffix(path.suffix+'.tmp')
+    for attempt in range(5):
+        try:
+            temporary.write_bytes(raw);temporary.replace(path);return
+        except PermissionError:
+            if attempt==4:raise
+            time.sleep(0.2*(attempt+1))
 
 def section_keys(value):
     if not isinstance(value,list):return []

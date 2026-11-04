@@ -26,6 +26,11 @@ def generate(session: Session, suggestion_id: str):
     existing = drafts(session, suggestion_id)
     if existing:
         return services.inbox_item(session, suggestion)
+    from campus_inbox.legacy_records import context
+
+    legacy = context(session, suggestion.message_id)
+    if legacy and not legacy["time_known"]:
+        raise HTTPException(409, "原消息发布时间未知，不能按迁移时间重新拆分识别。")
     if suggestion.status != "pending" or suggestion.action != "review":
         raise HTTPException(409, "仅待审核的多任务通知可以拆分。")
     message = services.get_or_404(session, Message, suggestion.message_id)
@@ -36,7 +41,8 @@ def generate(session: Session, suggestion_id: str):
     # The dictionary contains aliases, e.g. 数据库 is contained in 数据库原理.
     courses = [c for c in courses if not any(c != other and c in other for other in courses)]
     for position, quote in enumerate(parts, start=1):
-        result = extract_rules(quote, message.sent_at, message.timezone)
+        sent_at = None if message.dedupe_key.startswith("unknown-time:") else message.sent_at
+        result = extract_rules(quote, sent_at, message.timezone)
         if not result.fields.get("course") and len(courses) == 1:
             result.fields["course"] = courses[0]
             result.evidence["course"] = {"method": "rule", "quote": courses[0]}

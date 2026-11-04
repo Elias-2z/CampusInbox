@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { displayDate } from '@/api'
+import { displayDate, displayDeadline } from '@/api'
 import { useCampus } from '@/stores/campus'
 const store = useCampus()
 const tab = ref('unread')
@@ -32,7 +32,7 @@ const items = computed(
     </button>
   </div>
   <p class="ci-notice ci-before">
-    站内提醒 · 页面打开时自动检查。已读不等于任务已完成，关闭页面后不会弹出通知。
+    页面打开时自动检查，可在设置中开启浏览器通知。已读不等于任务已完成，关闭页面后不会弹出通知。
   </p>
   <div v-if="store.reminderError" class="ci-status ci-errorbanner" role="alert">
     {{ store.reminderError
@@ -102,7 +102,7 @@ const items = computed(
         <h2>
           <RouterLink :to="`/tasks/${item.task.id}`">{{ item.task.title }}</RouterLink>
         </h2>
-        <p>{{ item.task.course || '待分类' }} · 截止 {{ displayDate(item.due_at, true) }}</p>
+        <p>{{ item.task.course || '待分类' }} · 截止 {{ displayDeadline(item, true) }}</p>
         <p v-if="item.snoozed_until" class="ci-notice ci-before">
           {{ displayDate(item.snoozed_until, true) }} 后重新提醒。
         </p>

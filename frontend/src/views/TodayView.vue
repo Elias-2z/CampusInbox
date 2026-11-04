@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { dayKey } from '@/api'
+import { dayKey, deadlineExpired, deadlineKey, deadlineOrder } from '@/api'
+import { dayKey as calendarDayKey } from '@/calendar'
 import { useCampus } from '@/stores/campus'
 import TaskList from '@/components/TaskList.vue'
 const store = useCampus()
 const selectedDay = ref(0)
 const today = computed(() => new Date(store.clock))
+const active = computed(() =>
+  store.active.filter((task) => !task.checkin_closed && !deadlineExpired(task, store.clock)),
+)
+const upcomingReminders = computed(() =>
+  store.unreadReminders.filter(
+    (item) => item.phase === 'upcoming' && !deadlineExpired(item, store.clock),
+  ),
+)
 const days = computed(() =>
   Array.from({ length: 7 }, (_, index) => {
     const date = new Date(today.value)
@@ -18,22 +27,17 @@ const days = computed(() =>
   }),
 )
 const priority = computed(() =>
-  [...store.active]
-    .sort(
-      (a, b) =>
-        (a.due_at ? Date.parse(a.due_at) : Infinity) - (b.due_at ? Date.parse(b.due_at) : Infinity),
-    )
-    .slice(0, 5),
+  [...active.value].sort((a, b) => deadlineOrder(a) - deadlineOrder(b)).slice(0, 5),
 )
 const dueForDay = computed(() =>
-  store.active.filter(
-    (t) => t.due_at && dayKey(new Date(t.due_at)) === days.value[selectedDay.value]?.key,
+  active.value.filter(
+    (t) => deadlineKey(t) === calendarDayKey(days.value[selectedDay.value]!.date),
   ),
 )
-const completed = computed(() => store.tasks.filter((t) => t.status === 'completed').length)
-const total = computed(
-  () => store.tasks.filter((t) => !['archived', 'cancelled'].includes(t.status)).length,
+const completed = computed(
+  () => store.tasks.filter((t) => ['completed', 'submitted'].includes(t.status)).length,
 )
+const total = computed(() => completed.value + active.value.length)
 </script>
 <template>
   <div class="ci-pagehead">
@@ -57,9 +61,11 @@ const total = computed(
       <h2>把琐事放这里，<br />把脑袋留给好主意。</h2>
       <p>
         {{
-          store.active.length
-            ? `还有 ${store.active.length} 件事等你，先从最重要的开始。`
-            : '从一条课程通知开始，把事情安排明白。'
+          active.length
+            ? `还有 ${active.length} 件事等你，先从最重要的开始。`
+            : store.tasks.length
+              ? '当前没有未逾期的待办，给今天留一点余地。'
+              : '从一条课程通知开始，把事情安排明白。'
         }}
       </p>
     </div>
@@ -72,7 +78,7 @@ const total = computed(
     <section>
       <div class="ci-sectionhead">
         <h2>
-          接下来先搞定 👇<span class="ci-count">{{ store.active.length }} 项待办</span>
+          接下来先搞定 👇<span class="ci-count">{{ active.length }} 项待办</span>
         </h2>
         <RouterLink class="ci-btn ci-text cursor-interaction" to="/tasks">全部任务 ↗</RouterLink>
       </div>
@@ -88,7 +94,7 @@ const total = computed(
         </div>
       </div>
       <div v-if="total" class="ci-donebar">
-        <span>已完成 {{ completed }} / {{ total }}</span>
+        <span>已完成 {{ completed }} / 未提交 {{ active.length }}</span>
         <div
           class="ci-progress"
           role="progressbar"
@@ -107,8 +113,8 @@ const total = computed(
         <div class="ci-teaseicon" aria-hidden="true">🔔</div>
         <h3>
           {{
-            store.unreadReminders.length
-              ? `${store.unreadReminders.length} 条提醒，别错过`
+            upcomingReminders.length
+              ? `${upcomingReminders.length} 条提醒，别错过`
               : '截止提醒，替你留意'
           }}
         </h3>
@@ -116,13 +122,13 @@ const total = computed(
         <p v-else-if="store.reminderFeed && !store.reminderFeed.config.enabled">
           站内提醒已关闭，可到设置重新启用。
         </p>
-        <p v-else>即将截止和逾期的任务会在这里提醒。页面打开时自动检查。</p>
+        <p v-else>即将截止的任务会在这里提醒。页面打开时自动检查。</p>
         <RouterLink
-          v-for="item in store.unreadReminders.slice(0, 3)"
+          v-for="item in upcomingReminders.slice(0, 3)"
           :key="item.id"
           class="ci-daytask"
           :to="`/tasks/${item.task.id}`"
-          >{{ item.phase === 'overdue' ? '⏰' : '🔔' }} {{ item.task.title }} ↗</RouterLink
+          >🔔 {{ item.task.title }} ↗</RouterLink
         >
         <RouterLink class="ci-btn cursor-interaction" to="/reminders">查看全部提醒 →</RouterLink>
       </section>
@@ -156,11 +162,7 @@ const total = computed(
             ><span
               class="ci-dot"
               :style="{
-                opacity: store.active.some(
-                  (t) => t.due_at && dayKey(new Date(t.due_at)) === day.key,
-                )
-                  ? 1
-                  : 0,
+                opacity: active.some((t) => deadlineKey(t) === calendarDayKey(day.date)) ? 1 : 0,
               }"
             />
           </button>

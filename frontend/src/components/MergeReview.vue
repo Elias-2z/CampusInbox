@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   displayDate,
+  displayDeadline,
   fieldNames,
   post,
   emptyDraft,
@@ -30,9 +31,11 @@ const selected = ref<string[]>([])
 const preview = ref<MergePreview | null>(null)
 const previewing = ref(false)
 const error = ref('')
-const active = computed(() => store.tasks.filter((t) => ['todo', 'in_progress'].includes(t.status)))
+const active = computed(() =>
+  store.tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+)
 const candidates = computed(() =>
-  props.source.matched_tasks.filter((t) => ['todo', 'in_progress'].includes(t.status)),
+  props.source.matched_tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
 )
 const others = computed(() =>
   active.value.filter((t) => !candidates.value.some((c) => c.id === t.id)),
@@ -173,7 +176,7 @@ async function refreshContext() {
       <template v-if="target">
         <p class="ci-notice ci-before">
           当前截止时间：{{
-            displayDate(target.due_at, true)
+            displayDeadline(target, true)
           }}。字段来自已识别通知；需要进一步修改时，可先只关联，再编辑任务。
         </p>
         <div v-for="key in differences" :key="key" class="ci-merge-field">

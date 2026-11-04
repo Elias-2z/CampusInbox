@@ -46,6 +46,16 @@ def load_settings(directory):
         except (ValueError,KeyError,TypeError,OSError): pass
     return {'allowed_packages':DEFAULT_PACKAGES.copy()}
 
+def export_backup(inbox):
+    return dict(
+        version='0.1.0',
+        exported_at=now_iso(),
+        messages=inbox.messages(limit=None,include_hidden=True),
+        proposals=inbox.proposals(None),
+        tasks=[inbox.task_detail(task['id']) for task in inbox.tasks()],
+    )
+
+
 def create_server(host,port,inbox,token,root=None,agent=None,*,reminder_port=8766,qq_port=8767):
     root=Path(root or Path(__file__).resolve().parents[1])
     configured=agent or Agent(inbox,provider_from_env())
@@ -313,8 +323,12 @@ def create_server(host,port,inbox,token,root=None,agent=None,*,reminder_port=876
                         return self.response(200,dict(settings,agent=configured.info(),server_port=self.server.server_port,listen_host=host,addresses=sorted(self.server.discovery.allowed_hosts()),mobile_discovery=self.server.discovery.status(),chaoxing_web=web_status,ocr=os.name=='nt',pdf_optional=True))
                     if path=='/api/calendar.ics': return self.response(200,inbox.calendar(),'text/calendar; charset=utf-8','courseinbox.ics')
                     if path=='/api/export.json':
-                        content=dict(version='0.1.0',exported_at=now_iso(),messages=inbox.messages(limit=None,include_hidden=True),proposals=inbox.proposals(None),tasks=[inbox.task_detail(t['id']) for t in inbox.tasks()])
-                        return self.response(200,content,filename='courseinbox-backup.json')
+                        content=export_backup(inbox)
+                        return self.response(200,json.dumps(content,ensure_ascii=False,indent=2)+'\n',filename='courseinbox-backup.json')
+                    if path=='/api/export.txt':
+                        from .readable_export import render_report
+                        text=render_report([inbox.task_detail(t['id']) for t in inbox.tasks()],inbox.messages(limit=None,include_hidden=True),inbox.proposals(None),now_iso())
+                        return self.response(200,text,'text/plain; charset=utf-8','campusinbox-report.txt')
                     if path.startswith('/api/tasks/'):
                         return self.response(200,inbox.task_detail(path.rsplit('/',1)[-1]))
                 if method in ('POST','PATCH'):

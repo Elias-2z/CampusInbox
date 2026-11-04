@@ -22,6 +22,14 @@ async function backup() {
     error.value = e instanceof Error ? e.message : '导出失败'
   }
 }
+async function report() {
+  try {
+    await download('/export.txt', 'campusinbox-report.txt')
+    notice.value = '已导出可读报告。'
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : '导出失败'
+  }
+}
 </script>
 <template>
   <p v-if="error" role="alert" class="ci-notice">{{ error }}</p>
@@ -40,10 +48,9 @@ async function backup() {
           {{ imports?.mineru_configured ? '已配置，上传前需确认' : '未配置，文本与手动创建仍可用' }}
         </dd>
       </dl>
-      <p class="ci-muted">模型沿用项目现有配置，由副本根目录的 .env 管理；修改后重启副本服务。</p>
+      <p class="ci-muted">模型配置保存在 .env，修改后重启服务。</p>
       <p class="ci-muted">
-        图片、PDF、Word 和 PPT 解析使用 MinerU。可在根目录 .env 设置
-        MINERU_API_KEY；配置后重新打开新建窗口。上传前会说明数据去向和额度。
+        图片及文档解析需在 .env 设置 MINERU_API_KEY，配置后重新打开新建窗口。上传前会说明数据去向和额度。
       </p>
     </section>
     <section class="ci-settings-section">
@@ -57,7 +64,11 @@ async function backup() {
     <section class="ci-settings-section">
       <h2>🗃️ 数据与备份</h2>
       <p>数据保存在迁移副本的 data 目录。导出不会修改原数据。</p>
-      <button class="ci-btn ci-primary" @click="backup">导出数据备份</button>
+      <div class="ci-actions">
+        <button class="ci-btn ci-primary" @click="report">导出可读报告</button>
+        <button class="ci-btn" @click="backup">导出完整 JSON</button>
+      </div>
+      <p class="ci-muted">可读报告汇总任务和通知；完整记录请导出 JSON。</p>
       <p class="ci-muted">
         JSON 包含任务、通知与历史；原附件、登录会话和配置不包含在此文件中。完整备份请同时保留 data
         下的数据库、uploads 目录和私有配置。

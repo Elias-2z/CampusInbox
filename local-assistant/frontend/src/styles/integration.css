@@ -13,6 +13,9 @@ a {
   border-radius: 0;
 }
 .app-root .ci-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   padding: 20px 28px;
   gap: 18px;
 }

@@ -96,6 +96,10 @@ async def test_local_text_review_preserves_original_and_deduplicates_attachment(
     original = await client.get(f"/api/attachments/{file['id']}/download")
     assert original.content == NOTICE.encode("gb18030")
     assert "attachment" in original.headers["content-disposition"]
+    parsed = await client.get(f"/api/attachments/{file['id']}/text")
+    assert parsed.status_code == 200
+    assert parsed.json()["text"] == NOTICE
+    assert parsed.headers["cache-control"] == "no-store"
     assert (await client.get("/api/imports/files")).json() == []
 
 
@@ -107,6 +111,376 @@ async def test_cloud_consent_and_configuration_checked_before_saving(context, mo
     assert (await client.get("/api/imports/capabilities")).json()["mineru_configured"] is False
     assert not (path / "uploads").exists()
     assert (await upload(client)).status_code == 200
+
+
+async def test_local_ocr_preserves_original_without_cloud_or_consent(context, monkeypatch):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: True)
+    monkeypatch.setattr(attachments, "extract_local_ocr", lambda path: ("识别后的通知", ""))
+    response = await client.post(
+        "/api/imports/files",
+        params={"filename": "通知.png", "extractor": "local"},
+        content=b"synthetic-image",
+    )
+    assert response.status_code == 200, response.text
+    item = response.json()
+    assert item["status"] == "ready" and item["text"] == "识别后的通知"
+    assert FakeMinerU.calls == 0
+    assert (
+        await client.get(f"/api/attachments/{item['id']}/download")
+    ).content == b"synthetic-image"
+
+
+def synthetic_docx(document):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", document)
+    return output.getvalue()
+
+
+async def test_docx_can_be_read_locally_without_windows_or_cloud(context, monkeypatch):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: False)
+    content = synthetic_docx(
+        """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>作业通知</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>提交报告</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>"""
+    )
+    capabilities = (await client.get("/api/imports/capabilities")).json()
+    assert capabilities["local_docx"] is True
+    response = await client.post(
+        "/api/imports/files",
+        params={"filename": "通知.docx", "extractor": "local"},
+        content=content,
+    )
+    assert response.status_code == 200, response.text
+    item = response.json()
+    assert item["status"] == "ready" and item["text"] == "作业通知\n提交报告"
+    assert FakeMinerU.calls == 0
+    assert (await client.get(f"/api/attachments/{item['id']}/download")).content == content
+
+
+async def test_unsafe_or_broken_docx_is_kept_but_not_sent_to_cloud(context, monkeypatch):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: False)
+    for content in (b"not-a-zip", synthetic_docx('<!DOCTYPE x [<!ENTITY e "unsafe">]><x>&e;</x>')):
+        response = await client.post(
+            "/api/imports/files",
+            params={"filename": "通知.docx", "extractor": "local"},
+            content=content,
+        )
+        assert response.status_code == 200
+        item = response.json()
+        assert item["status"] == "failed"
+        assert (await client.get(f"/api/attachments/{item['id']}/download")).content == content
+        assert (await client.post(f"/api/imports/files/{item['id']}/retry")).status_code == 422
+        assert (await client.post(f"/api/imports/files/{item['id']}/local-ocr")).json()[
+            "status"
+        ] == "failed"
+    assert FakeMinerU.calls == 0
+
+
+async def test_docx_materials_are_reviewable_after_task_confirmation(context, monkeypatch):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: False)
+    content = synthetic_docx(
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body><w:p><w:r><w:t>请上传源代码。</w:t></w:r></w:p></w:body></w:document>"
+    )
+    result = await client.post(
+        "/api/imports/files",
+        params={"filename": "要求.docx", "extractor": "local"},
+        content=content,
+    )
+    item = result.json()
+    inbox = await client.post(
+        "/api/inbox",
+        json={
+            "text": "软件工程：请提交实验报告。",
+            "attachment_id": item["id"],
+            "sent_at": "2026-11-03T09:00:00+08:00",
+        },
+    )
+    assert inbox.status_code == 200, inbox.text
+    suggestion = inbox.json()
+    assert (await client.get("/api/tasks")).json() == []
+    accepted = await client.post(
+        f"/api/suggestions/{suggestion['id']}/accept", json=suggestion["fields"]
+    )
+    assert accepted.status_code == 200, accepted.text
+    task_id = accepted.json()["id"]
+    candidates = (await client.get(f"/api/tasks/{task_id}/material-suggestions")).json()["items"]
+    assert any(x["text"] == "源代码" and x["source"] == "附件：要求.docx" for x in candidates)
+    assert (await client.get(f"/api/tasks/{task_id}")).json()["materials"] == []
+    assert FakeMinerU.calls == 0
+
+
+async def test_single_attachment_can_suggest_a_task_with_its_own_evidence(context):
+    client, _ = context
+    content = "软件工程：请于2026年12月8日18:00前提交实验报告。"
+    attachment = (await upload(client, "要求.txt", content.encode())).json()
+    response = await client.post(
+        "/api/inbox",
+        json={
+            "text": "请阅读附件说明。",
+            "attachment_id": attachment["id"],
+            "sent_at": "2026-11-03T09:00:00+08:00",
+        },
+    )
+    assert response.status_code == 200, response.text
+    suggestion = response.json()
+    assert suggestion["action"] == "create"
+    assert suggestion["fields"]["title"] == "实验报告"
+    assert suggestion["fields"]["due_at"] == "2026-12-08T10:00:00+00:00"
+    assert suggestion["evidence"]["title"]["method"] == "attachment"
+    assert "要求.txt" in suggestion["evidence"]["title"]["quote"]
+    assert (await client.get("/api/tasks")).json() == []
+    accepted = await client.post(
+        f"/api/suggestions/{suggestion['id']}/accept", json=suggestion["fields"]
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert (await client.get(f"/api/tasks/{accepted.json()['id']}")).json()["source"][
+        "attachments"
+    ][0]["id"] == attachment["id"]
+
+
+async def test_attachment_relative_dates_are_not_anchored_to_notice_time(context):
+    client, _ = context
+    attachment = (await upload(client, "要求.txt", "请于明天18:00前提交实验报告。".encode())).json()
+    response = await client.post(
+        "/api/inbox",
+        json={
+            "text": "请阅读附件说明。",
+            "attachment_id": attachment["id"],
+            "sent_at": "2026-11-03T09:00:00+08:00",
+        },
+    )
+    suggestion = response.json()
+    assert suggestion["action"] == "create"
+    assert suggestion["fields"]["due_at"] is None and suggestion["fields"]["due_date"] is None
+    assert any("相对日期" in warning for warning in suggestion["warnings"])
+
+
+async def test_attachment_with_change_notice_does_not_create_task(context):
+    client, _ = context
+    attachment = (await upload(client, "变更.txt", "实验报告延期至2026年12月8日。".encode())).json()
+    response = await client.post(
+        "/api/inbox",
+        json={
+            "text": "请阅读附件说明。",
+            "attachment_id": attachment["id"],
+            "sent_at": "2026-11-03T09:00:00+08:00",
+        },
+    )
+    assert response.json()["action"] != "create"
+    assert (await client.get("/api/tasks")).json() == []
+
+
+async def test_attachment_conflicting_absolute_deadline_requires_review(context):
+    client, _ = context
+    attachment = (
+        await upload(client, "要求.txt", "请于2026年12月9日18:00前提交实验报告。".encode())
+    ).json()
+    response = await client.post(
+        "/api/inbox",
+        json={
+            "text": "请于2026年12月8日18:00前提交实验报告。",
+            "attachment_id": attachment["id"],
+            "sent_at": "2026-11-03T09:00:00+08:00",
+        },
+    )
+    item = response.json()
+    assert item["fields"]["due_at"] is None and item["fields"]["due_date"] is None
+    assert any("附件" in warning and "不一致" in warning for warning in item["warnings"])
+
+
+async def test_unmatched_attachment_task_is_not_merged_into_notice(context):
+    client, _ = context
+    attachment = (
+        await upload(client, "要求.txt", "请于2026年12月9日18:00前提交报名材料。".encode())
+    ).json()
+    response = await client.post(
+        "/api/inbox",
+        json={
+            "text": "请提交实验报告。",
+            "attachment_id": attachment["id"],
+            "sent_at": "2026-11-03T09:00:00+08:00",
+        },
+    )
+    item = response.json()
+    assert item["fields"]["title"] == "实验报告"
+    assert item["fields"]["due_at"] is None and item["fields"]["due_date"] is None
+    assert any("附件" in warning and "名称" in warning for warning in item["warnings"])
+
+
+async def test_late_attachment_parse_is_used_only_after_reanalysis(context):
+    client, directory = context
+    original = (
+        await client.post(
+            "/api/inbox",
+            json={
+                "text": "请阅读附件说明。",
+                "sent_at": "2026-11-03T09:00:00+08:00",
+            },
+        )
+    ).json()
+    engine = make_engine(directory / "test.db")
+    try:
+        with Session(engine) as session:
+            item = Attachment(
+                filename="要求.txt",
+                size=10,
+                status="ready",
+                text="请提交实验报告。",
+                message_id=original["message"]["id"],
+            )
+            session.add(item)
+            session.commit()
+        fresh = await client.post(f"/api/inbox/{original['id']}/analyze")
+        assert fresh.status_code == 200 and fresh.json()["action"] == "create"
+        assert fresh.json()["evidence"]["title"]["method"] == "attachment"
+        assert (await client.get("/api/tasks")).json() == []
+    finally:
+        engine.dispose()
+
+
+async def test_multiple_attachments_are_not_combined_into_one_task(context):
+    client, directory = context
+    original = (
+        await client.post(
+            "/api/inbox",
+            json={
+                "text": "请阅读附件说明。",
+                "sent_at": "2026-11-03T09:00:00+08:00",
+            },
+        )
+    ).json()
+    engine = make_engine(directory / "test.db")
+    try:
+        with Session(engine) as session:
+            session.add_all(
+                [
+                    Attachment(
+                        filename="任务一.txt",
+                        size=10,
+                        status="ready",
+                        text="请提交实验报告。",
+                        message_id=original["message"]["id"],
+                    ),
+                    Attachment(
+                        filename="任务二.txt",
+                        size=10,
+                        status="ready",
+                        text="请提交代码。",
+                        message_id=original["message"]["id"],
+                    ),
+                ]
+            )
+            session.commit()
+        fresh = await client.post(f"/api/inbox/{original['id']}/analyze")
+        assert fresh.status_code == 200 and fresh.json()["action"] == "ignore"
+        assert (await client.get("/api/tasks")).json() == []
+    finally:
+        engine.dispose()
+
+
+async def test_local_ocr_failure_keeps_original_and_can_be_retried(context, monkeypatch):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: True)
+
+    def fail(_path):
+        raise ValueError("no OCR language")
+
+    monkeypatch.setattr(attachments, "extract_local_ocr", fail)
+    response = await client.post(
+        "/api/imports/files",
+        params={"filename": "通知.png", "extractor": "local"},
+        content=b"image",
+    )
+    item = response.json()
+    assert response.status_code == 200 and item["status"] == "failed"
+    assert (await client.get(f"/api/attachments/{item['id']}/download")).content == b"image"
+    monkeypatch.setattr(attachments, "extract_local_ocr", lambda path: ("重新识别成功", ""))
+    retry = await client.post(f"/api/imports/files/{item['id']}/local-ocr")
+    assert retry.status_code == 200 and retry.json()["text"] == "重新识别成功"
+
+
+async def test_locally_uploaded_file_is_not_sent_to_mineru_without_new_consent(
+    context, monkeypatch
+):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: True)
+
+    def fail(_path):
+        raise ValueError("no OCR language")
+
+    monkeypatch.setattr(attachments, "extract_local_ocr", fail)
+    result = await client.post(
+        "/api/imports/files",
+        params={"filename": "通知.pdf", "extractor": "local"},
+        content=b"fake-pdf",
+    )
+    item = result.json()
+    assert item["status"] == "failed"
+    refused = await client.post(f"/api/imports/files/{item['id']}/retry")
+    assert refused.status_code == 422
+    assert FakeMinerU.calls == 0
+    accepted = await client.post(f"/api/imports/files/{item['id']}/retry?consent=true")
+    assert accepted.status_code == 200 and accepted.json()["status"] == "parsing"
+    assert FakeMinerU.calls == 1
+
+
+async def test_bmp_cannot_be_sent_to_unsupported_cloud_extractor(context, monkeypatch):
+    client, _ = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: True)
+
+    def fail(_path):
+        raise ValueError("failed")
+
+    monkeypatch.setattr(attachments, "extract_local_ocr", fail)
+    result = await client.post(
+        "/api/imports/files", params={"filename": "通知.bmp", "extractor": "local"}, content=b"bmp"
+    )
+    assert result.json()["status"] == "failed"
+    refused = await client.post(f"/api/imports/files/{result.json()['id']}/retry?consent=true")
+    assert refused.status_code == 422
+    assert FakeMinerU.calls == 0
+
+
+async def test_linked_unreadable_attachment_can_be_reprocessed_locally(context, monkeypatch):
+    client, directory = context
+    monkeypatch.setattr(attachments, "supports_local_ocr", lambda: True)
+
+    def fail(_path):
+        raise ValueError("failed")
+
+    monkeypatch.setattr(attachments, "extract_local_ocr", fail)
+    item = (
+        await client.post(
+            "/api/imports/files",
+            params={"filename": "通知.png", "extractor": "local"},
+            content=b"image",
+        )
+    ).json()
+    suggestion = (
+        await client.post(
+            "/api/inbox",
+            json={"text": "软件工程：请提交实验报告", "sent_at": "2026-11-03T09:00:00+08:00"},
+        )
+    ).json()
+    engine = make_engine(directory / "test.db")
+    try:
+        with Session(engine) as session:
+            linked = session.get(Attachment, item["id"])
+            linked.message_id = suggestion["message"]["id"]
+            session.add(linked)
+            session.commit()
+    finally:
+        engine.dispose()
+    monkeypatch.setattr(attachments, "extract_local_ocr", lambda path: ("识别后的要求", ""))
+    response = await client.post(f"/api/imports/files/{item['id']}/local-ocr")
+    assert response.status_code == 200 and response.json()["text"] == "识别后的要求"
+    assert (await client.get(f"/api/attachments/{item['id']}/text")).json()[
+        "text"
+    ] == "识别后的要求"
 
 
 async def test_cloud_poll_resume_after_restart_without_duplicate_submission(context):

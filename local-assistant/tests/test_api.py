@@ -53,6 +53,28 @@ class ApiTests(unittest.TestCase):
                 return response.status,response.read(),response.headers
         except urllib.error.HTTPError as error:
             return error.code,error.read(),error.headers
+    def test_export_json_is_indented_and_keeps_chinese_text(self):
+        from unittest.mock import patch
+        messages=[{'text':'课程通知\n提交报告'}]
+        with patch.object(self.inbox,'messages',return_value=messages):
+            status,raw,headers=self.request('/api/export.json')
+        self.assertEqual(status,200)
+        self.assertEqual(json.loads(raw)['messages'],messages)
+        self.assertIn('\n  "messages": [\n',raw.decode('utf-8'))
+        self.assertIn('课程通知',raw.decode('utf-8'))
+        self.assertIn('courseinbox-backup.json',headers['Content-Disposition'])
+    def test_readable_export_shows_tasks_and_notification_text(self):
+        from unittest.mock import patch
+        task={'id':'a','title':'实验报告','course':'软件工程','status':'pending','deadline':None,'checklist':[{'text':'源代码','done':False}]}
+        messages=[{'text':'第一行\n第二行','source':'测试','captured_at':'2026-11-02'}]
+        with patch.object(self.inbox,'tasks',return_value=[task]),patch.object(self.inbox,'task_detail',return_value=task),patch.object(self.inbox,'messages',return_value=messages),patch.object(self.inbox,'proposals',return_value=[]):
+            status,raw,headers=self.request('/api/export.txt')
+        self.assertEqual(status,200)
+        text=raw.decode('utf-8')
+        for value in ('【任务】共 1 项','实验报告','软件工程','待开始','源代码','第一行\n第二行'):
+            self.assertIn(value,text)
+        self.assertIn('campusinbox-report.txt',headers['Content-Disposition'])
+        self.assertEqual(self.request('/api/export.txt',auth=False)[0],401)
     def test_pairing_proof_is_readonly_and_requires_strict_challenge(self):
         from unittest.mock import patch
         from courseinbox.discovery import make_proof

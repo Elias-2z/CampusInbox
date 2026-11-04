@@ -1,6 +1,8 @@
 # Windows QQ 开发与 AI Chat 交接指南
 
-更新时间：2026-11-02。目标：让 Windows 用户在同一套 CampusInbox 中连接本人 QQ、选择群／成员、接收通知并审核任务，复用现有核心与 OneBot 协议。
+目标：让 Windows 用户在同一套 CampusInbox 中连接本人 QQ、选择群／成员、接收通知并审核任务，复用现有核心与 OneBot 协议。
+
+当前融合分支已接入 Windows 凭据管理器，并通过隔离的模拟凭据测试；真实 Windows QQ / OneBot 连接仍需实机验收。下文部分内容为原开发计划。
 
 2026-11-04 实现更新：已接入 Windows Credential Manager、平台能力提示、主应用 Windows 启动／停止脚本和跨平台后端 CI。操作步骤与当前验证边界见 [Windows QQ 运行说明](qq-windows.md)。下文保留原交接设计；其中“当前主要缺口”等描述指交接时状态。真实 QQ 扫码与测试群验收仍待完成。
 

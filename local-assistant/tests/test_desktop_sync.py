@@ -2,7 +2,29 @@ import base64,io,json,tempfile,unittest,urllib.request,urllib.error,threading
 from pathlib import Path
 from unittest.mock import patch
 from courseinbox.core import Inbox
-from courseinbox.desktop_sync import DesktopSync
+from courseinbox.desktop_sync import DesktopSync, atomic
+
+class AtomicWriteTests(unittest.TestCase):
+    def test_retries_transient_permission_error_without_losing_previous_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'inventory.json';path.write_bytes(b'old')
+            original=Path.replace;attempts=[]
+            def replace(source,target):
+                attempts.append(1)
+                if len(attempts)<3:
+                    self.assertEqual(path.read_bytes(),b'old')
+                    raise PermissionError('temporarily locked')
+                return original(source,target)
+            with patch.object(Path,'replace',replace),patch('courseinbox.desktop_sync.time.sleep'):
+                atomic(path,b'new')
+            self.assertEqual(path.read_bytes(),b'new');self.assertEqual(len(attempts),3)
+
+    def test_persistent_permission_error_preserves_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'inventory.json';path.write_bytes(b'old')
+            with patch.object(Path,'replace',side_effect=PermissionError('locked')),patch('courseinbox.desktop_sync.time.sleep'):
+                with self.assertRaises(PermissionError):atomic(path,b'new')
+            self.assertEqual(path.read_bytes(),b'old')
 
 class DesktopSyncTests(unittest.TestCase):
     def setUp(self):

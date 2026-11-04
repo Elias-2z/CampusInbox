@@ -1,6 +1,6 @@
 """Persistence only. All timestamps use timezone-aware UTC."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from sqlalchemy import JSON, Column
@@ -50,6 +50,18 @@ class Attachment(SQLModel, table=True):
     created_at: datetime = Field(default_factory=now)
 
 
+class LocalOCRSource(SQLModel, table=True):
+    attachment_id: str = Field(foreign_key="attachment.id", primary_key=True)
+    cloud_consent: bool = False
+
+
+class LocalAttachmentExtraction(SQLModel, table=True):
+    """Durable local extraction request for a collected original."""
+
+    attachment_id: str = Field(foreign_key="attachment.id", primary_key=True)
+    state: str = Field(default="pending", index=True)
+
+
 class Task(SQLModel, table=True):
     id: str = Field(default_factory=uid, primary_key=True)
     suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
@@ -59,6 +71,7 @@ class Task(SQLModel, table=True):
     kind: str = "other"
     description: str = ""
     due_at: datetime | None = None
+    due_date: date | None = None
     status: str = Field(default="todo", index=True)
     submission_platform: str = ""
     submission_method: str = ""
@@ -68,6 +81,11 @@ class Task(SQLModel, table=True):
     version: int = 1
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
+
+
+class TaskMaterials(SQLModel, table=True):
+    task_id: str = Field(foreign_key="task.id", primary_key=True)
+    items: list = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
 
 
 class TaskEvent(SQLModel, table=True):
@@ -105,6 +123,31 @@ class DeadlineChange(SQLModel, table=True):
     suggestion_id: str = Field(foreign_key="suggestion.id", primary_key=True)
     task_id: str = Field(foreign_key="task.id", index=True)
     proposal_id: str = Field(foreign_key="deadlineproposal.id", unique=True)
+    event_id: str = Field(foreign_key="taskevent.id", unique=True)
+    applied_version: int
+    undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)
+
+
+class DateDeadlineProposal(SQLModel, table=True):
+    """Deadline review that preserves civil dates without inventing a time."""
+
+    id: str = Field(default_factory=uid, primary_key=True)
+    suggestion_id: str = Field(foreign_key="suggestion.id", index=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    task_version: int
+    before_due_at: datetime | None = None
+    before_due_date: date | None = None
+    proposed_due_at: datetime | None = None
+    proposed_due_date: date | None = None
+    suggestion_updated_at: datetime
+    evidence: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=now)
+
+
+class DateDeadlineChange(SQLModel, table=True):
+    suggestion_id: str = Field(foreign_key="suggestion.id", primary_key=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    proposal_id: str = Field(foreign_key="datedeadlineproposal.id", unique=True)
     event_id: str = Field(foreign_key="taskevent.id", unique=True)
     applied_version: int
     undo_event_id: str | None = Field(default=None, foreign_key="taskevent.id", unique=True)
@@ -181,6 +224,18 @@ class ReminderState(SQLModel, table=True):
     id: str = Field(primary_key=True)
     task_id: str = Field(foreign_key="task.id", index=True)
     due_at: datetime
+    phase: str
+    is_read: bool = False
+    read_at: datetime | None = None
+    snoozed_until: datetime | None = None
+    version: int = 0
+    updated_at: datetime = Field(default_factory=now)
+
+
+class DateReminderState(SQLModel, table=True):
+    id: str = Field(primary_key=True)
+    task_id: str = Field(foreign_key="task.id", index=True)
+    due_date: date
     phase: str
     is_read: bool = False
     read_at: datetime | None = None

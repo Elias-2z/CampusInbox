@@ -43,6 +43,29 @@ def test_dates_use_message_context(text, expected):
     assert parse_deadline(text, ANCHOR, "Asia/Shanghai").due_at.isoformat() == expected
 
 
+def test_scoped_deadlines_keep_explicit_cutoff_and_reject_model_guesses():
+    timezone = "Asia/Shanghai"
+    schedule = "实验时间：2026年11月2日18:00。请提交实验报告。"
+    explicit = extract_rules(
+        schedule + "截止时间：2026年11月3日18:00。",
+        ANCHOR,
+        timezone,
+        scoped_deadline=True,
+    )
+    assert explicit.fields["due_at"] == "2026-11-03T10:00:00+00:00"
+    unknown = extract_rules(schedule, ANCHOR, timezone, scoped_deadline=True)
+    result = merge_model(
+        unknown,
+        {"due_text": "2026年11月2日18:00"},
+        schedule,
+        ANCHOR,
+        timezone,
+        scoped_deadline=True,
+    )
+    assert result.fields["due_at"] is None
+    assert result.fields["due_date"] is None
+
+
 @pytest.mark.parametrize(
     "text",
     [
@@ -71,6 +94,64 @@ def test_complete_rule_result_skips_model():
     assert result.fields["file_requirements"] == "学号+姓名"
     assert result.evidence["due_at"]["quote"] == "10月31日18:00"
     assert not result.needs_llm
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("软件工程：请于2026年11月2日前提交实验报告。", "2026-11-02"),
+        ("软件工程：提交实验报告，截止日期为2026-11-02。", "2026-11-02"),
+        ("软件工程：周五截止，请提交实验报告。", "2026-10-30"),
+        ("软件工程：明天提交实验报告。", "2026-10-30"),
+    ],
+)
+def test_explicit_date_only_deadlines_are_preserved_without_a_time(text, expected):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert result.fields["due_date"] == expected
+    assert result.fields["due_at"] is None
+    assert result.evidence["due_date"]["quote"] in text
+    assert any("时刻" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "软件工程：11月2日发布作业，11月3日上课。",
+        "软件工程：11月2日前或11月3日前提交实验报告。",
+        "软件工程：10月31日25:90截止，请提交报告。",
+        "软件工程：11月2日18:00或11月3日前提交实验报告。",
+    ],
+)
+def test_ambiguous_or_invalid_dates_do_not_become_date_only_deadlines(text):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert not result.fields.get("due_date")
+    assert not result.fields.get("due_at")
+
+
+def test_model_does_not_replace_rule_date_only_with_guessed_time():
+    text = "软件工程：2026年11月2日前提交报告。"
+    result = merge_model(
+        extract_rules(text, ANCHOR, "Asia/Shanghai"),
+        {"due_text": "2026年11月2日18:00"},
+        text,
+        ANCHOR,
+        "Asia/Shanghai",
+    )
+    assert result.fields["due_date"] == "2026-11-02"
+    assert result.fields["due_at"] is None
+
+
+def test_model_cannot_choose_one_of_two_competing_deadlines():
+    text = "软件工程：11月2日18:00或11月3日前提交实验报告。"
+    result = merge_model(
+        extract_rules(text, ANCHOR, "Asia/Shanghai"),
+        {"due_text": "11月2日18:00"},
+        text,
+        ANCHOR,
+        "Asia/Shanghai",
+    )
+    assert result.fields["due_at"] is None
+    assert result.fields["due_date"] is None
 
 
 def test_changes_never_become_an_ordinary_new_task():

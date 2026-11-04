@@ -13,20 +13,21 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from campus_inbox import cancellations, merging
-from campus_inbox.deadlines import change_read
+from campus_inbox import attachment_analysis, cancellations, merging
+from campus_inbox.deadlines import change_read, find_change, find_proposal
 from campus_inbox.extraction import (
     cancellation_supported,
     deadline_supported,
     extract_rules,
+    lab_schedule_quotes,
     merge_model,
     numbered_parts,
 )
 from campus_inbox.models import (
     Attachment,
     CancellationChange,
+    DateDeadlineChange,
     DeadlineChange,
-    DeadlineProposal,
     MergeChange,
     MergeProposal,
     Message,
@@ -47,6 +48,7 @@ from campus_inbox.schemas import (
     SplitDraftRead,
     TaskDetail,
     TaskFields,
+    TaskListItem,
     TaskRead,
     TaskUpdate,
 )
@@ -64,13 +66,20 @@ def get_or_404(session: Session, table, key: str):
 
 
 def config(session: Session):
-    from campus_inbox.inference import active_config
+    from campus_inbox.inference import local_config
 
-    return active_config(session)
+    return local_config(session)
 
 
 def message_read(session: Session, message: Message) -> MessageRead:
     result = MessageRead.model_validate(message)
+    attachments = session.exec(select(Attachment).where(Attachment.message_id == message.id)).all()
+    if message.dedupe_key.startswith("unknown-time:"):
+        result.sent_at = None
+    if message.dedupe_key.startswith("legacy:"):
+        from campus_inbox.legacy_records import context
+
+        result.source_context = context(session, message.id)
     if message.dedupe_key.startswith("qq:"):
         from campus_inbox.connectors.qq import source_context
 
@@ -81,12 +90,13 @@ def message_read(session: Session, message: Message) -> MessageRead:
                 f"QQ · {context['course'] or context['group_name'] or '课程群'}"
                 f" · 发件人 {context['sender_name'] or context['sender_id']}"
             )
-    result.attachments = [
-        AttachmentInfo.model_validate(attachment)
-        for attachment in session.exec(
-            select(Attachment).where(Attachment.message_id == message.id)
+    elif message.dedupe_key.startswith("chaoxing:"):
+        from campus_inbox.connectors.chaoxing import source_context
+
+        result.source_context = source_context(
+            session, message.dedupe_key, linked_attachments=attachments
         )
-    ]
+    result.attachments = [AttachmentInfo.model_validate(attachment) for attachment in attachments]
     return result
 
 
@@ -136,7 +146,7 @@ def matching_tasks(session: Session, fields: dict) -> list[Task]:
 
 def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     task = session.exec(select(Task).where(Task.suggestion_id == suggestion.id)).first()
-    change = session.get(DeadlineChange, suggestion.id)
+    change = find_change(session, suggestion.id)
     cancellation = session.get(CancellationChange, suggestion.id)
     merge = merging.find_change(session, merging.source_key(suggestion.id, None))
     split_merges = {
@@ -155,6 +165,9 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         )
     )
     message = get_or_404(session, Message, suggestion.message_id)
+    display_message = message_read(session, message)
+    context = display_message.source_context or {}
+    is_checkin = context.get("kind") == "checkin_activity"
     supported = suggestion.action == "review" and deadline_supported(message.text)
     warnings = [
         "检测到截止时间变更，请核对目标任务和新旧时间后确认。"
@@ -170,9 +183,16 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         fields=suggestion.fields,
         evidence=suggestion.evidence,
         warnings=warnings,
-        message=message_read(session, message),
+        message=display_message,
+        activity_schedule=(
+            lab_schedule_quotes(message.text)
+            if context.get("platform") == "chaoxing"
+            and context.get("kind") in {"chat", "course_notice"}
+            else []
+        ),
         matched_tasks=[
-            TaskRead.model_validate(t) for t in matching_tasks(session, suggestion.fields)
+            TaskRead.model_validate(t)
+            for t in ([] if is_checkin else matching_tasks(session, suggestion.fields))
         ],
         task_id=(
             None
@@ -214,18 +234,43 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     )
 
 
-def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Suggestion:
+def analyze(
+    session: Session, suggestion: Suggestion, provider_factory, *, use_active_model=False
+) -> Suggestion:
     message = get_or_404(session, Message, suggestion.message_id)
-    result = extract_rules(message.text, message.sent_at, message.timezone)
+    time_known = not message.dedupe_key.startswith("unknown-time:")
+    scoped_deadline = message.dedupe_key.startswith("chaoxing:")
+    result = extract_rules(
+        message.text,
+        message.sent_at if time_known else None,
+        message.timezone,
+        scoped_deadline=scoped_deadline,
+    )
     context = None
     if message.dedupe_key.startswith("qq:"):
         from campus_inbox.connectors.qq import source_context
 
         context = source_context(session, message.dedupe_key, persist=True)
-    settings = config(session)
+    elif message.dedupe_key.startswith("chaoxing:"):
+        from campus_inbox.connectors.chaoxing import (
+            apply_platform_deadline,
+            apply_platform_task,
+            source_context,
+        )
+
+        context = source_context(session, message.dedupe_key)
+        if context:
+            apply_platform_task(result, context)
+            apply_platform_deadline(result, context)
+    if use_active_model and re.fullmatch(r"[0-9a-f]{64}", message.dedupe_key):
+        from campus_inbox.inference import active_config
+
+        settings = active_config(session)
+    else:
+        settings = config(session)
     text, sent_at, timezone = message.text, message.sent_at, message.timezone
     session.commit()  # Release database transaction before waiting for inference.
-    if result.needs_llm and result.action != "ignore":
+    if time_known and result.needs_llm and result.action != "ignore":
         if settings.enabled and settings.model and len(text) <= 12000:
             try:
                 provider = provider_factory(settings)
@@ -235,7 +280,9 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
                     if context and callable(getattr(provider, "generate_contextual", None))
                     else provider.generate_structured(text, reference, timezone)
                 )
-                result = merge_model(result, model, text, sent_at, timezone)
+                result = merge_model(
+                    result, model, text, sent_at, timezone, scoped_deadline=scoped_deadline
+                )
             except ProviderError as exc:
                 result.warnings.append(str(exc))
         else:
@@ -248,10 +295,31 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
         result.fields["course"] = context["course"]
         result.evidence["course"] = {
             "method": "connector",
-            "quote": f"QQ群「{context['group_name']}」的课程设置：{context['course']}",
+            "quote": (
+                f"QQ群「{context['group_name']}」的课程设置：{context['course']}"
+                if context.get("platform") == "qq"
+                else f"学习通来源的课程：{context['course']}"
+            ),
         }
+    attachment_count = (
+        context["attachment_analysis_count"]
+        if context and context.get("platform") == "chaoxing"
+        else 1
+    )
+    used_attachment = (
+        time_known
+        and attachment_count > 0
+        and attachment_analysis.supplement(session, message, result, attachment_count)
+    )
     if not result.fields.get("title") and result.action == "create":
         result.warnings.append("任务名称待补充。")
+    if (
+        context
+        and context.get("platform") == "chaoxing"
+        and context.get("has_unprocessed_media")
+        and not used_attachment
+    ):
+        result.warnings.append("学习通附件或图片尚未用于任务识别，请查看原文及附件核对。")
     suggestion.fields, suggestion.evidence = result.fields, result.evidence
     suggestion.warnings = list(dict.fromkeys(result.warnings))
     suggestion.action, suggestion.method = result.action, result.method
@@ -263,7 +331,12 @@ def analyze(session: Session, suggestion: Suggestion, provider_factory) -> Sugge
 
 
 def import_message(
-    session: Session, body: ImportMessage, provider_factory, *, dedupe_key: str | None = None
+    session: Session,
+    body: ImportMessage,
+    provider_factory,
+    *,
+    dedupe_key: str | None = None,
+    use_active_model=False,
 ) -> Suggestion:
     attachment = None
     if body.attachment_id:
@@ -275,7 +348,11 @@ def import_message(
             return session.exec(
                 select(Suggestion).where(Suggestion.message_id == attachment.message_id)
             ).one()
-    day = body.sent_at.astimezone(ZoneInfo(body.timezone)).date().isoformat()
+    day = (
+        body.sent_at.astimezone(ZoneInfo(body.timezone)).date().isoformat()
+        if body.sent_at
+        else None
+    )
     key = (
         dedupe_key
         or hashlib.sha256(
@@ -285,6 +362,8 @@ def import_message(
             ).encode()
         ).hexdigest()
     )
+    if body.sent_at is None:
+        key = "unknown-time:" + key
     existing = session.exec(select(Message).where(Message.dedupe_key == key)).first()
     if existing:
         if attachment:
@@ -295,7 +374,7 @@ def import_message(
     message = Message(
         text=body.text,
         source=body.source,
-        sent_at=utc_value(body.sent_at),
+        sent_at=utc_value(body.sent_at) or datetime(1970, 1, 1, tzinfo=UTC),
         timezone=body.timezone,
         dedupe_key=key,
     )
@@ -320,10 +399,20 @@ def import_message(
             session.commit()
         return session.exec(select(Suggestion).where(Suggestion.message_id == existing.id)).one()
     session.refresh(suggestion)
-    return analyze(session, suggestion, provider_factory)
+    return analyze(session, suggestion, provider_factory, use_active_model=use_active_model)
 
 
-def retry(session: Session, suggestion: Suggestion, provider_factory) -> Suggestion:
+def retry(
+    session: Session, suggestion: Suggestion, provider_factory, *, use_active_model=False
+) -> Suggestion:
+    from campus_inbox.connectors.chaoxing import checkin_event
+    from campus_inbox.legacy_records import context
+
+    if checkin_event(session, get_or_404(session, Message, suggestion.message_id)):
+        raise HTTPException(409, "签到使用平台活动详情，请通过学习通同步刷新。")
+    legacy = context(session, suggestion.message_id)
+    if legacy and not legacy["time_known"]:
+        raise HTTPException(409, "旧版原消息发布时间未知，请手动核对字段，不能据迁移时间重新识别。")
     if session.exec(select(SplitDraft).where(SplitDraft.suggestion_id == suggestion.id)).first():
         raise HTTPException(409, "已生成拆分草稿，请逐项编辑核对，避免重新识别覆盖处理进度。")
     changed = session.execute(
@@ -338,7 +427,7 @@ def retry(session: Session, suggestion: Suggestion, provider_factory) -> Suggest
     if changed != 1:
         raise HTTPException(409, "只有待审核建议可以重新识别；正在识别时请稍候。")
     session.refresh(suggestion)
-    return analyze(session, suggestion, provider_factory)
+    return analyze(session, suggestion, provider_factory, use_active_model=use_active_model)
 
 
 def snapshot(task: Task) -> dict:
@@ -355,10 +444,15 @@ def accept(session: Session, suggestion: Suggestion, body: AcceptSuggestion) -> 
         raise HTTPException(409, "建议已处理或仍在识别，请刷新后重试。")
     if suggestion.action != "create":
         raise HTTPException(409, "这条通知需要人工核对，不能直接按新任务入库。")
+    from campus_inbox.connectors.chaoxing import checkin_event, validate_checkin_accept
+
+    checkin = checkin_event(session, get_or_404(session, Message, suggestion.message_id))
     fields = body.model_dump(exclude={"allow_duplicate"})
-    if matching_tasks(session, fields) and not body.allow_duplicate:
+    if checkin:
+        fields.update(due_at=validate_checkin_accept(session, checkin), due_date=None, kind="event")
+    elif matching_tasks(session, fields) and not body.allow_duplicate:
         raise HTTPException(409, "发现可能重复的任务，请核对并明确选择仍然创建。")
-    fields["due_at"] = utc_value(body.due_at)
+    fields["due_at"] = utc_value(fields["due_at"])
     task = Task(**fields, suggestion_id=suggestion.id, message_id=suggestion.message_id)
     changed = session.execute(
         update(Suggestion)
@@ -426,6 +520,10 @@ def update_task(session: Session, task: Task, body: TaskUpdate) -> Task:
     before = snapshot(task)
     data = body.model_dump(exclude={"expected_version"})
     data["due_at"] = utc_value(body.due_at)
+    # Older clients do not know the date-only field; a title/status edit must
+    # not silently erase it. Supplying a precise time intentionally replaces it.
+    if "due_date" not in body.model_fields_set and body.due_at is None:
+        data.pop("due_date", None)
     changed = session.execute(
         update(Task)
         .where(
@@ -453,7 +551,23 @@ def update_task(session: Session, task: Task, body: TaskUpdate) -> Task:
     return task
 
 
+def list_tasks(session: Session, current: datetime) -> list[TaskListItem]:
+    from campus_inbox.connectors.chaoxing import closed_checkin_suggestions
+
+    tasks = session.exec(select(Task).order_by(Task.created_at.desc())).all()
+    closed = closed_checkin_suggestions(session, [task.suggestion_id for task in tasks], current)
+    return [
+        TaskListItem(**task.model_dump(), checkin_closed=task.suggestion_id in closed)
+        for task in tasks
+    ]
+
+
 def detail(session: Session, task: Task) -> TaskDetail:
+    from campus_inbox.connectors.chaoxing import closed_checkin_suggestions
+    from campus_inbox.connectors.platform_status import for_task, public
+    from campus_inbox.legacy_records import task_record
+    from campus_inbox.models import TaskMaterials
+
     suggestion = get_or_404(session, Suggestion, task.suggestion_id)
     events = list(
         session.exec(
@@ -466,6 +580,9 @@ def detail(session: Session, task: Task) -> TaskDetail:
         )
     )
     changes = list(session.exec(select(DeadlineChange).where(DeadlineChange.task_id == task.id)))
+    changes.extend(
+        session.exec(select(DateDeadlineChange).where(DateDeadlineChange.task_id == task.id))
+    )
     by_event = {change.event_id: change for change in changes}
     by_undo = {change.undo_event_id: change for change in changes if change.undo_event_id}
     split_draft = session.exec(select(SplitDraft).where(SplitDraft.task_id == task.id)).first()
@@ -486,15 +603,19 @@ def detail(session: Session, task: Task) -> TaskDetail:
                         "original": evidence.get(key),
                     }
         elif event.operation == "deadline_update" and event.id in by_event:
-            prior_due[event.id] = evidence.get("due_at")
-            proposal = get_or_404(session, DeadlineProposal, by_event[event.id].proposal_id)
-            evidence["due_at"] = {**proposal.evidence, "confirmed": True}
+            prior_due[event.id] = {key: evidence.get(key) for key in ("due_at", "due_date")}
+            proposal = find_proposal(session, by_event[event.id].proposal_id)
+            key = "due_date" if getattr(proposal, "proposed_due_date", None) else "due_at"
+            evidence.pop("due_at", None)
+            evidence.pop("due_date", None)
+            evidence[key] = {**proposal.evidence, "confirmed": True}
         elif event.operation == "deadline_undo" and event.id in by_undo:
-            previous = prior_due.get(by_undo[event.id].event_id)
-            if previous is None:
-                evidence.pop("due_at", None)
-            else:
-                evidence["due_at"] = previous
+            previous = prior_due.get(by_undo[event.id].event_id, {})
+            for key in ("due_at", "due_date"):
+                if previous.get(key) is None:
+                    evidence.pop(key, None)
+                else:
+                    evidence[key] = previous[key]
         elif event.operation == "merge" and event.id in merge_events:
             proposal = get_or_404(session, MergeProposal, merge_events[event.id].proposal_id)
             prior_merge[event.id] = {key: evidence.get(key) for key in proposal.after_fields}
@@ -509,8 +630,14 @@ def detail(session: Session, task: Task) -> TaskDetail:
                     evidence[key] = value
     source_ids = list(dict.fromkeys([task.message_id, *[event.message_id for event in events]]))
     sources = [message_read(session, get_or_404(session, Message, mid)) for mid in source_ids]
+    is_checkin = (sources[0].source_context or {}).get("kind") == "checkin_activity"
     return TaskDetail(
+        legacy=task_record(session, task.id),
         task=TaskRead.model_validate(task),
+        platform_observation=public(for_task(session, task), task.status),
+        checkin_closed=is_checkin
+        and task.suggestion_id in closed_checkin_suggestions(session, [task.suggestion_id], now()),
+        materials=(session.get(TaskMaterials, task.id) or TaskMaterials(task_id=task.id)).items,
         source=sources[0],
         sources=sources,
         merge_changes=[merging.change_read(session, change) for change in merges],

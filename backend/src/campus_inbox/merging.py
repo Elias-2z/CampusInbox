@@ -1,6 +1,6 @@
 """Associate an incoming notice with a task; apply only explicitly selected fields."""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -54,6 +54,10 @@ def change_read(session: Session, change: MergeChange) -> MergeChangeRead:
 def pending_source(session: Session, suggestion_id: str, split_id: str | None):
     suggestion = require(session, Suggestion, suggestion_id)
     message = require(session, Message, suggestion.message_id)
+    from campus_inbox.connectors.chaoxing import checkin_event
+
+    if checkin_event(session, message):
+        raise HTTPException(409, "签到按平台场次处理，不能按同名任务合并。")
     if suggestion.status != "pending":
         raise HTTPException(409, "通知已处理或正在识别，请刷新后核对。")
     if split_id:
@@ -70,7 +74,8 @@ def pending_source(session: Session, suggestion_id: str, split_id: str | None):
         if suggestion.action != "create" or is_multiple(message.text):
             raise HTTPException(409, "仅新任务通知可以关联；变更通知请使用对应审核流程。")
         text = message.text
-    if extract_rules(text, message.sent_at, message.timezone).action != "create":
+    sent_at = None if message.dedupe_key.startswith("unknown-time:") else message.sent_at
+    if extract_rules(text, sent_at, message.timezone).action != "create":
         raise HTTPException(422, "原文涉及其他变更或非任务内容，不能按新任务通知关联。")
     return source, suggestion, message
 
@@ -80,8 +85,8 @@ def preview(
 ) -> MergePreview:
     source, suggestion, message = pending_source(session, suggestion_id, split_id)
     task = require(session, Task, body.task_id)
-    if task.status not in {"todo", "in_progress"}:
-        raise HTTPException(409, "只能关联待办或进行中的任务，请先核对状态。")
+    if task.status not in {"todo", "in_progress", "done"}:
+        raise HTTPException(409, "只能关联尚未提交的任务，请先核对状态。")
     snapshot = task_snapshot(task)
     selected = {}
     for key in dict.fromkeys(body.fields):
@@ -89,6 +94,12 @@ def preview(
         if value in (None, ""):
             raise HTTPException(422, "选中的字段没有明确通知内容，不能用空值清空原任务。")
         selected[key] = value
+    if "due_at" in selected and "due_date" in selected:
+        raise HTTPException(422, "截止日期与截止时间只能选择一项。")
+    if "due_at" in selected and task.due_date is not None:
+        selected["due_date"] = None
+    if "due_date" in selected and task.due_at is not None:
+        selected["due_at"] = None
     try:
         final = TaskFields.model_validate(
             {**{k: snapshot[k] for k in TaskFields.model_fields}, **selected}
@@ -111,7 +122,9 @@ def preview(
         warnings.append("截止时间存在冲突，请对照原文核对；未勾选截止时间时会保留原值。")
     if task.course and source.fields.get("course") and task.course != source.fields["course"]:
         warnings.append("通知与目标任务的课程不同，请确认关联的是同一项任务。")
-    if message.sent_at < task.created_at and selected:
+    if message.dedupe_key.startswith("unknown-time:") and selected:
+        warnings.append("原通知发布时间未知，请核对字段后再关联。")
+    elif message.sent_at < task.created_at and selected:
         warnings.append("通知发布时间早于任务创建时间，请核对是否为旧通知，避免覆盖较新的信息。")
     proposal = MergeProposal(
         source_key=source_key(suggestion_id, split_id),
@@ -149,6 +162,8 @@ def values(fields: dict) -> dict:
     result = dict(fields)
     if result.get("due_at"):
         result["due_at"] = datetime.fromisoformat(result["due_at"])
+    if result.get("due_date"):
+        result["due_date"] = date.fromisoformat(result["due_date"])
     return result
 
 
@@ -165,7 +180,7 @@ def confirm(session: Session, proposal_id: str) -> MergeChangeRead:
     task = require(session, Task, proposal.task_id)
     if source.updated_at != proposal.source_updated_at:
         raise HTTPException(409, "通知或草稿在预览后已更新，请重新预览。")
-    if task.version != proposal.task_version or task.status not in {"todo", "in_progress"}:
+    if task.version != proposal.task_version or task.status not in {"todo", "in_progress", "done"}:
         raise HTTPException(409, "任务在预览后有变化，请刷新并重新预览。")
     before = task_snapshot(task)
     changed = session.execute(

@@ -46,8 +46,8 @@ def preview(
     if not cancellation_supported(message.text):
         raise HTTPException(422, "未识别到明确的单任务取消，不能按取消任务处理。")
     task = require(session, Task, body.task_id)
-    if task.status not in {"todo", "in_progress"}:
-        raise HTTPException(409, "只能取消待办或进行中的任务，请先核对任务状态。")
+    if task.status not in {"todo", "in_progress", "done"}:
+        raise HTTPException(409, "只能取消尚未提交的任务，请先核对任务状态。")
     proposal = CancellationProposal(
         suggestion_id=suggestion.id,
         task_id=task.id,
@@ -81,7 +81,7 @@ def confirm(session: Session, proposal_id: str) -> CancellationChangeRead:
     if (
         task.version != proposal.task_version
         or task.status != proposal.before_status
-        or task.status not in {"todo", "in_progress"}
+        or task.status not in {"todo", "in_progress", "done"}
     ):
         raise HTTPException(409, "任务在预览后有变化，请刷新并重新预览。")
     before = task_snapshot(task)

@@ -107,6 +107,21 @@ async def test_link_only_preserves_all_business_fields_and_links_sources(client)
     ).status_code == 409
 
 
+async def test_material_suggestions_follow_linked_sources_until_undone(client):
+    original = await task(client)
+    item = await notice(client, "软件工程：请提交需求分析报告和源代码。")
+    path = f"/api/tasks/{original['id']}/material-suggestions"
+    assert (await client.get(path)).json()["items"] == []
+    applied = await confirm(client, await preview(client, item, original))
+    materials = (await client.get(path)).json()["items"]
+    assert [(m["text"], m["source"]) for m in materials] == [
+        ("需求分析报告", "补充通知正文"),
+        ("源代码", "补充通知正文"),
+    ]
+    assert (await client.post(f"/api/merge-changes/{applied['id']}/undo")).status_code == 200
+    assert (await client.get(path)).json()["items"] == []
+
+
 async def test_only_checked_fields_are_applied_and_undo_restores_evidence(client):
     original = await task(client)
     before = (await client.get(f"/api/tasks/{original['id']}")).json()

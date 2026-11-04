@@ -1,4 +1,5 @@
-export type TaskStatus = 'todo' | 'in_progress' | 'completed' | 'cancelled' | 'archived'
+export type TaskStatus =
+  'todo' | 'in_progress' | 'done' | 'submitted' | 'completed' | 'cancelled' | 'archived'
 export type TaskKind = 'homework' | 'exam' | 'event' | 'other'
 export interface TaskInput {
   title: string
@@ -6,6 +7,7 @@ export interface TaskInput {
   kind: TaskKind
   description: string
   due_at: string | null
+  due_date: string | null
   submission_platform: string
   submission_method: string
   file_requirements: string
@@ -13,6 +15,7 @@ export interface TaskInput {
   remarks: string
 }
 export interface Task extends TaskInput {
+  checkin_closed?: boolean
   id: string
   suggestion_id: string
   message_id: string
@@ -30,18 +33,40 @@ export interface Message {
   id: string
   text: string
   source: string
-  sent_at: string
+  sent_at: string | null
   timezone: string
   received_at: string
   attachments: AttachmentInfo[]
-  source_context?: {
-    platform: string
-    group_id: string
-    group_name: string
-    sender_id: string
-    sender_name: string
-    course: string
-  } | null
+  source_context?:
+    | {
+        platform: 'legacy'
+        namespace: string
+        legacy_id: string
+        time_known: boolean
+        course: string
+        group_name: string
+      }
+    | {
+        platform: 'qq'
+        group_id: string
+        group_name: string
+        sender_id: string
+        sender_name: string
+        course: string
+      }
+    | {
+        platform: 'chaoxing'
+        group_name: string
+        sender_name: string
+        course: string
+        message_id: string
+        kind: string
+        closed_task_status?: boolean
+        title?: string
+        event_id?: string
+        missing_originals?: { index: number; name: string; recoverable?: boolean }[]
+      }
+    | null
 }
 export interface AttachmentInfo {
   id: string
@@ -55,12 +80,15 @@ export interface FileImport extends AttachmentInfo {
 }
 export interface ImportCapabilities {
   mineru_configured: boolean
+  local_ocr: boolean
+  local_docx: boolean
   max_bytes: number
   extensions: string[]
 }
 export interface InboxItem {
+  activity_schedule?: string[]
   id: string
-  status: 'processing' | 'pending' | 'accepted' | 'ignored'
+  status: 'processing' | 'pending' | 'accepted' | 'ignored' | 'archived'
   action: 'create' | 'review' | 'ignore'
   method: string
   fields: Partial<TaskInput>
@@ -102,7 +130,20 @@ export interface TaskEvent {
   created_at: string
 }
 export interface TaskDetail {
+  checkin_closed?: boolean
+  legacy?: {
+    namespace: string
+    legacy_id: string
+    record: { history?: { at?: string; action?: string; before?: unknown; after?: unknown }[] }
+  } | null
   task: Task
+  platform_observation: {
+    id: string
+    status: string
+    checked_at: string
+    suggested_status: 'todo' | 'submitted' | null
+  } | null
+  materials: { text: string; done: boolean }[]
   source: Message
   sources: Message[]
   deadline_changes: DeadlineChange[]
@@ -116,7 +157,8 @@ export interface DeadlinePreview {
   id: string
   suggestion_id: string
   task: Task
-  proposed_due_at: string
+  proposed_due_at: string | null
+  proposed_due_date: string | null
   warnings: string[]
   evidence: Evidence
   created_at: string
@@ -197,7 +239,8 @@ export interface Reminder {
   task: Task
   phase: 'upcoming' | 'overdue'
   status: 'unread' | 'read' | 'snoozed'
-  due_at: string
+  due_at: string | null
+  due_date: string | null
   read_at: string | null
   snoozed_until: string | null
   version: number
@@ -271,6 +314,7 @@ export const emptyDraft = (): TaskInput => ({
   kind: 'other',
   description: '',
   due_at: '',
+  due_date: '',
   submission_platform: '',
   submission_method: '',
   file_requirements: '',
@@ -298,10 +342,13 @@ export const serialize = (draft: TaskInput): TaskInput => ({
   ...draft,
   title: draft.title.trim(),
   due_at: draft.due_at ? new Date(draft.due_at).toISOString() : null,
+  due_date: draft.due_date || null,
 })
 export const statusNames: Record<TaskStatus, string> = {
   todo: '待办',
   in_progress: '进行中',
+  done: '已做完，未提交',
+  submitted: '已提交',
   completed: '已完成',
   cancelled: '已取消',
   archived: '已归档',
@@ -312,6 +359,8 @@ export const fieldNames: Record<string, string> = {
   kind: '类型',
   description: '任务内容',
   due_at: '截止时间',
+  due_date: '截止日期',
+  materials: '材料清单',
   status: '状态',
   submission_platform: '提交平台',
   submission_method: '提交方式',
@@ -329,6 +378,49 @@ export function displayDate(value: string | null, withYear = false): string {
     minute: '2-digit',
     hour12: false,
   })
+}
+export function displayDeadline(
+  value: { due_at: string | null; due_date?: string | null },
+  withYear = false,
+): string {
+  if (value.due_date) return `${value.due_date.replaceAll('-', '/')}（仅日期）`
+  return displayDate(value.due_at, withYear)
+}
+export function displayMessageTime(message: Message, withYear = false): string {
+  if (
+    message.sent_at === null ||
+    (message.source_context?.platform === 'legacy' && !message.source_context.time_known)
+  )
+    return '发布时间未知'
+  return displayDate(message.sent_at, withYear)
+}
+export function deadlineKey(value: {
+  due_at: string | null
+  due_date?: string | null
+}): string | null {
+  if (value.due_date) return value.due_date
+  if (!value.due_at) return null
+  const d = new Date(value.due_at)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+export function deadlineExpired(
+  value: { due_at: string | null; due_date?: string | null },
+  now: number,
+): boolean {
+  if (value.due_date) {
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(
+      new Date(now),
+    )
+    return value.due_date < today
+  }
+  return !!value.due_at && Date.parse(value.due_at) <= now
+}
+export function deadlineOrder(value: { due_at: string | null; due_date?: string | null }): number {
+  return value.due_date
+    ? Date.parse(`${value.due_date}T23:59:59+08:00`)
+    : value.due_at
+      ? Date.parse(value.due_at)
+      : Infinity
 }
 export const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
 export const courseEmoji = (course: string) =>

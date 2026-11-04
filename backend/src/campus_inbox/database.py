@@ -31,6 +31,7 @@ def make_engine(path: Path):
 
 
 def initialize(engine) -> None:
+    migrate_task_due_date(engine)
     SQLModel.metadata.create_all(engine)
     migrate_task_source_index(engine)
     with Session(engine) as session:
@@ -51,6 +52,31 @@ def initialize(engine) -> None:
             attachment.error = "上次上传被中断，原文件已保留，可以重新解析。"
             session.add(attachment)
         session.commit()
+
+
+def migrate_task_due_date(engine) -> None:
+    """Back up an existing database before adding an optional civil-date deadline."""
+    with engine.connect() as connection:
+        with connection.begin():
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            columns = connection.exec_driver_sql("PRAGMA table_info(task)").fetchall()
+            if not columns:
+                return
+            existing = next((row for row in columns if row[1] == "due_date"), None)
+            if existing:
+                if existing[2].upper() != "DATE" or existing[3]:
+                    raise RuntimeError("Unrecognized task due_date column; migration stopped")
+                return
+            path = Path(engine.url.database)
+            backup_dir = path.parent / "backups"
+            backup_dir.mkdir(exist_ok=True)
+            backup = backup_dir / f"before-task-date-{datetime.now(UTC):%Y%m%dT%H%M%S%fZ}.sqlite3"
+            with sqlite3.connect(path) as source, sqlite3.connect(backup) as target:
+                source.backup(target)
+                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise RuntimeError("Task deadline backup failed integrity verification")
+            os.chmod(backup, 0o600)
+            connection.exec_driver_sql("ALTER TABLE task ADD COLUMN due_date DATE")
 
 
 def migrate_task_source_index(engine) -> None:

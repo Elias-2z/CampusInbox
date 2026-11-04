@@ -15,22 +15,40 @@ from campus_inbox import (
     attachments,
     calendar,
     cancellations,
+    data_export,
     deadlines,
+    legacy_migration,
+    material_suggestions,
     merging,
+    phone_reminders,
     reminders,
     services,
     splitting,
+    wechat_push,
 )
+from campus_inbox.connectors import platform_status
+from campus_inbox.connectors.browser_bridge import router as browser_bridge_router
+from campus_inbox.connectors.chaoxing_api import router as chaoxing_router
+from campus_inbox.connectors.chaoxing_runtime import ChaoxingRuntime
 from campus_inbox.connectors.onebot import OneBotAdapter
 from campus_inbox.connectors.onebot import router as onebot_router
 from campus_inbox.connectors.qq import QQCore
 from campus_inbox.connectors.qq import router as qq_router
 from campus_inbox.database import DEFAULT_DB, initialize, make_engine
 from campus_inbox.inference import InferenceSettings, ModelManager
-from campus_inbox.inference import local_config as local_model_config
 from campus_inbox.inference import router as inference_router
 from campus_inbox.mineru import MinerUProvider
-from campus_inbox.models import ModelSettings, ReminderSettings, SplitDraft, Suggestion, Task, now
+from campus_inbox.models import (
+    Message,
+    ModelSettings,
+    ReminderSettings,
+    SplitDraft,
+    Suggestion,
+    Task,
+    TaskEvent,
+    TaskMaterials,
+    now,
+)
 from campus_inbox.providers import OllamaProvider, ProviderError
 from campus_inbox.schemas import (
     AcceptSuggestion,
@@ -44,9 +62,11 @@ from campus_inbox.schemas import (
     ImportMessage,
     InboxItem,
     LocalModelConfig,
+    MaterialsUpdate,
     MergeChangeRead,
     MergePreview,
     MergePreviewRequest,
+    PlatformStatusUpdate,
     ReminderAction,
     ReminderConfig,
     ReminderFeed,
@@ -56,9 +76,11 @@ from campus_inbox.schemas import (
     SplitEdit,
     TaskDetail,
     TaskFields,
+    TaskListItem,
     TaskRead,
     TaskUpdate,
 )
+from campus_inbox.task_assistant import router as task_assistant_router
 
 
 def get_session(request: Request) -> Iterator[Session]:
@@ -84,35 +106,55 @@ def create_app(
     mineru_factory=MinerUProvider,
     qq_adapter=None,
     qq_background=True,
+    chaoxing_background=True,
     model_secrets=None,
     api_transport=None,
 ) -> FastAPI:
     engine = make_engine(db_path or Path(os.environ.get("CAMPUSINBOX_DB_PATH", str(DEFAULT_DB))))
-
     manager = ModelManager(engine, provider_factory, model_secrets, api_transport)
-    provider_factory = manager.provider
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         initialize(engine)
         if qq_background:
             qq_core.start()
+        if chaoxing_background:
+            chaoxing.resume_if_enabled()
+        push_status = push.status()
+        if push_status["enabled"] or push_status["result"] == "sending":
+            push.start()
         try:
             yield
         finally:
             qq_core.close()
+            chaoxing.shutdown()
+            phone.stop()
+            push.stop()
             engine.dispose()
 
     qq_core = QQCore(
         engine, provider_factory, qq_adapter or OneBotAdapter(Path(engine.url.database).parent)
     )
+    chaoxing = ChaoxingRuntime(engine, provider_factory, Path(engine.url.database).parent)
+    phone = phone_reminders.PhoneReminders(engine)
+    push = wechat_push.WechatPush(engine, reminder_clock)
     application = FastAPI(title="CampusInbox API", version="0.1.0", lifespan=lifespan)
     application.state.engine = engine
     application.state.qq_core = qq_core
+    application.state.chaoxing = chaoxing
+    application.state.phone_reminders = phone
+    application.state.wechat_push = push
     application.include_router(inference_router(manager))
     application.include_router(qq_router(qq_core))
     application.include_router(onebot_router(qq_core))
     application.include_router(attachments.router(engine, mineru_factory))
+    application.include_router(data_export.router(engine))
+    application.include_router(legacy_migration.router(engine))
+    application.include_router(chaoxing_router(chaoxing))
+    application.include_router(browser_bridge_router(chaoxing))
+    application.include_router(task_assistant_router(engine, provider_factory))
+    application.include_router(phone_reminders.control_router(phone))
+    application.include_router(wechat_push.router(push))
 
     @application.get("/api/health", tags=["system"])
     def health() -> dict[str, str]:
@@ -120,7 +162,8 @@ def create_app(
 
     @application.get("/api/inbox", response_model=list[InboxItem], tags=["inbox"])
     def list_inbox(
-        session: DB, status: Literal["pending", "accepted", "ignored", "all"] = "pending"
+        session: DB,
+        status: Literal["pending", "accepted", "ignored", "archived", "all"] = "pending",
     ):
         query = select(Suggestion)
         if status == "pending":
@@ -133,7 +176,7 @@ def create_app(
     @application.post("/api/inbox", response_model=InboxItem, tags=["inbox"])
     def import_text(body: ImportMessage, session: WriteDB):
         return services.inbox_item(
-            session, services.import_message(session, body, provider_factory)
+            session, services.import_message(session, body, manager.provider, use_active_model=True)
         )
 
     @application.post(
@@ -141,7 +184,9 @@ def create_app(
     )
     def reanalyze(suggestion_id: str, session: WriteDB):
         suggestion = services.get_or_404(session, Suggestion, suggestion_id)
-        return services.inbox_item(session, services.retry(session, suggestion, provider_factory))
+        return services.inbox_item(
+            session, services.retry(session, suggestion, manager.provider, use_active_model=True)
+        )
 
     @application.post(
         "/api/suggestions/{suggestion_id}/accept", response_model=TaskRead, tags=["inbox"]
@@ -264,16 +309,27 @@ def create_app(
         "/api/suggestions/{suggestion_id}/{operation}", response_model=InboxItem, tags=["inbox"]
     )
     def change_suggestion(
-        suggestion_id: str, operation: Literal["ignore", "reopen"], session: WriteDB
+        suggestion_id: str,
+        operation: Literal["ignore", "reopen", "restore-archive"],
+        session: WriteDB,
     ):
         suggestion = services.get_or_404(session, Suggestion, suggestion_id)
         if operation == "ignore" and splitting.drafts(session, suggestion_id):
             raise HTTPException(409, "已生成拆分草稿，请逐项处理或跳过剩余草稿。")
         if operation == "reopen" and splitting.drafts(session, suggestion_id):
             raise HTTPException(409, "拆分通知请使用各条目中的恢复待审核操作。")
-        expected, target = (
-            ("pending", "ignored") if operation == "ignore" else ("ignored", "pending")
-        )
+        if operation == "restore-archive" and suggestion.status == "archived":
+            from campus_inbox.connectors.chaoxing import source_context
+
+            message = services.get_or_404(session, Message, suggestion.message_id)
+            context = source_context(session, message.dedupe_key)
+            if context and context["closed_task_status"]:
+                raise HTTPException(409, "平台记录显示该作业已提交或结束。请同步最新状态。")
+        expected, target = {
+            "ignore": ("pending", "ignored"),
+            "reopen": ("ignored", "pending"),
+            "restore-archive": ("archived", "pending"),
+        }[operation]
         changed = session.execute(
             update(Suggestion)
             .where(
@@ -289,9 +345,9 @@ def create_app(
         session.refresh(suggestion)
         return services.inbox_item(session, suggestion)
 
-    @application.get("/api/tasks", response_model=list[TaskRead], tags=["tasks"])
+    @application.get("/api/tasks", response_model=list[TaskListItem], tags=["tasks"])
     def list_tasks(session: DB):
-        return session.exec(select(Task).order_by(Task.created_at.desc())).all()
+        return services.list_tasks(session, reminder_clock())
 
     @application.post("/api/tasks", response_model=TaskRead, tags=["tasks"])
     def create_task(body: TaskFields, session: WriteDB):
@@ -301,9 +357,85 @@ def create_app(
     def task_detail(task_id: str, session: DB):
         return services.detail(session, services.get_or_404(session, Task, task_id))
 
+    @application.get("/api/tasks/{task_id}/material-suggestions", tags=["tasks"])
+    def suggest_materials(task_id: str, session: DB):
+        task = services.get_or_404(session, Task, task_id)
+        return {"items": material_suggestions.candidates(session, task)}
+
     @application.patch("/api/tasks/{task_id}", response_model=TaskRead, tags=["tasks"])
     def edit_task(task_id: str, body: TaskUpdate, session: WriteDB):
         return services.update_task(session, services.get_or_404(session, Task, task_id), body)
+
+    @application.post(
+        "/api/tasks/{task_id}/platform-status", response_model=TaskRead, tags=["tasks"]
+    )
+    def adopt_platform_status(task_id: str, body: PlatformStatusUpdate, session: WriteDB):
+        from datetime import timedelta
+
+        task = services.get_or_404(session, Task, task_id)
+        observation = platform_status.for_task(session, task)
+        if (
+            task.version != body.expected_version
+            or not observation
+            or observation.id != body.observation_id
+        ):
+            raise HTTPException(409, "任务或平台状态已变化，请刷新后重新核对。")
+        target = platform_status.suggested_for_task(observation.status, task.status)
+        age = now() - platform_status.aware(observation.checked_at)
+        if age > timedelta(hours=24) or age < timedelta(seconds=-2):
+            raise HTTPException(409, "平台状态已过期，请先重新同步。")
+        if not target or task.status in {"cancelled", "archived"}:
+            raise HTTPException(422, "此平台状态不能直接采用，请手动核对。")
+        if task.status == target:
+            return task
+        before = services.snapshot(task)
+        task.status, task.version, task.updated_at = target, task.version + 1, now()
+        session.add(task)
+        session.add(
+            TaskEvent(
+                task_id=task.id,
+                message_id=task.message_id,
+                operation="platform_status",
+                before=before,
+                after={
+                    **services.snapshot(task),
+                    "platform_observation": platform_status.public(observation)
+                    | {"checked_at": platform_status.aware(observation.checked_at).isoformat()},
+                },
+            )
+        )
+        session.commit()
+        session.refresh(task)
+        return task
+
+    @application.put("/api/tasks/{task_id}/materials", response_model=TaskRead, tags=["tasks"])
+    def update_materials(task_id: str, body: MaterialsUpdate, session: WriteDB):
+        task = services.get_or_404(session, Task, task_id)
+        if task.version != body.expected_version:
+            raise HTTPException(409, "任务已被其他操作修改，请刷新后重试。")
+        materials = session.get(TaskMaterials, task_id) or TaskMaterials(task_id=task_id)
+        before = list(materials.items)
+        after = [item.model_dump() for item in body.items]
+        if before == after:
+            return task
+        previous_version = task.version
+        task.version += 1
+        task.updated_at = now()
+        materials.items = after
+        session.add(materials)
+        session.add(task)
+        session.add(
+            TaskEvent(
+                task_id=task.id,
+                message_id=task.message_id,
+                operation="materials",
+                before={"materials": before, "version": previous_version},
+                after={"materials": after, "version": task.version},
+            )
+        )
+        session.commit()
+        session.refresh(task)
+        return task
 
     @application.delete("/api/tasks/{task_id}", response_model=TaskRead, tags=["tasks"])
     def archive_task(task_id: str, session: WriteDB, expected_version: Annotated[int, Query(ge=1)]):
@@ -380,7 +512,7 @@ def create_app(
 
     @application.get("/api/settings/model", response_model=LocalModelConfig, tags=["settings"])
     def model_config(session: DB):
-        return local_model_config(session)
+        return services.config(session)
 
     @application.put("/api/settings/model", response_model=LocalModelConfig, tags=["settings"])
     def save_model_config(body: LocalModelConfig, session: WriteDB):

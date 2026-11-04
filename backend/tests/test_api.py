@@ -57,6 +57,58 @@ def task_data(task):
     return {k: v for k, v in task.items() if k in TaskFields.model_fields}
 
 
+async def test_unknown_chat_time_never_anchors_dates_or_model(client):
+    config = {"enabled": True, "model": "test-local:4b"}
+    assert (await client.put("/api/settings/model", json=config)).status_code == 200
+    payload = {"text": "软件工程：请于明天18:00前提交实验报告。", "source": "微信", "sent_at": None}
+    first = await client.post("/api/inbox", json=payload)
+    assert first.status_code == 200, first.text
+    item = first.json()
+    assert item["message"]["sent_at"] is None
+    assert item["fields"].get("due_at") is None
+    assert item["fields"].get("due_date") is None
+    assert FakeProvider.calls == 0
+    assert (await client.post("/api/inbox", json=payload)).json()["id"] == item["id"]
+    assert (await client.get("/api/tasks")).json() == []
+
+
+async def test_assistant_only_returns_valid_references_in_selected_course(client, monkeypatch):
+    payload = {"question": "报告需要交什么？", "course": "软件工程"}
+    path = "http://127.0.0.1/api/assistant/ask"
+    assert (await client.post(path, json=payload)).status_code == 409
+    config = {"enabled": True, "model": "test-local:4b"}
+    assert (await client.put("/api/settings/model", json=config)).status_code == 200
+    expected = (
+        await client.post("/api/tasks", json={"title": "实验报告", "course": "软件工程"})
+    ).json()
+    assert (
+        await client.put(
+            f"/api/tasks/{expected['id']}/materials",
+            json={
+                "expected_version": expected["version"],
+                "items": [{"text": "源代码", "done": False}],
+            },
+        )
+    ).status_code == 200
+    await client.post("/api/tasks", json={"title": "高数作业", "course": "高等数学"})
+
+    def answer(_self, question, facts, today):
+        assert question == payload["question"] and len(today) == 10
+        assert [fact["title"] for fact in facts] == ["实验报告"]
+        assert facts[0]["materials"] == [{"text": "源代码", "done": False}]
+        return {"answer": "可以查看实验报告的任务详情。", "references": [1, 1]}
+
+    monkeypatch.setattr(FakeProvider, "answer_tasks", answer, raising=False)
+    response = await client.post(path, json=payload)
+    assert response.status_code == 200, response.text
+    assert [item["id"] for item in response.json()["tasks"]] == [expected["id"]]
+    monkeypatch.setattr(
+        FakeProvider, "answer_tasks", lambda *_: {"answer": "超出范围", "references": [2]}
+    )
+    assert (await client.post(path, json=payload)).status_code == 502
+    assert len((await client.get("/api/tasks")).json()) == 2
+
+
 async def test_real_import_review_confirm_and_source(client):
     item = await import_one(client)
     assert item["status"] == "pending"
