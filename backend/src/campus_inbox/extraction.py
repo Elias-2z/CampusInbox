@@ -297,12 +297,17 @@ def infer_title(text: str) -> str:
         # Avoid treating "时间延期" or platform names as task names.
         if 2 <= len(title) <= 100 and not title.startswith(("时间", "截止", "至", "到")):
             return title
+    # Keep clock fragments out of fallback names (9:00 previously yielded "00进行期中考试").
+    # Do not alter the source text or remove digits that belong to task names.
+    title_text = re.sub(TIME.pattern.removeprefix("^"), "：", text)
     match = re.search(
         r"([\u4e00-\u9fffA-Za-z0-9]{0,14}(?:实验[一二三四五六七八九十0-9]+|课后习题|阅读练习|需求分析报告|作业|考试|报名))",
-        text,
+        title_text,
     )
     if match:
-        return re.sub(r"^(?:请|通知|关于|本次|本周)+", "", match[1])[:100]
+        return re.sub(r"^(?:请|通知|关于|本次|本周|进行|举行|参加|组织|安排|开展)+", "", match[1])[
+            :100
+        ]
     return ""
 
 

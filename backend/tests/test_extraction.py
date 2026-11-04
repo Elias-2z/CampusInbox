@@ -11,6 +11,26 @@ ANCHOR = datetime(2026, 10, 29, 14, 20, tzinfo=ZoneInfo("Asia/Shanghai"))
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
+        ("数据库原理：下周一上午9:00进行期中考试，地点为教学楼A301。", "期中考试"),
+        ("数据库原理：下周一上午9：30举行期中考试。", "期中考试"),
+        ("数据库原理：9:00进行期中考试。", "期中考试"),
+        ("数据库原理：下周一上午九点举行期中考试。", "期中考试"),
+        ("数据库原理：下周一上午9:00进行第2次考试。", "第2次考试"),
+        ("2026级考试", "2026级考试"),
+        ("大学英语：英语四级考试", "英语四级考试"),
+        ("软件工程：请于明天18:00前提交实验四报告。", "实验四报告"),
+    ],
+)
+def test_task_titles_do_not_include_clock_minutes(text, expected):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert result.fields["title"] == expected
+    assert result.evidence["title"]["quote"] == expected
+    assert expected in text
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
         ("明天23:59前提交报告", "2026-10-30T15:59:00+00:00"),
         ("下周一下午六点提交报告", "2026-11-02T10:00:00+00:00"),
         ("周五18:00截止", "2026-10-30T10:00:00+00:00"),
