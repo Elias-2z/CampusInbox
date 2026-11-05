@@ -436,7 +436,7 @@ def test_reconnect_stops_stale_worker_before_starting_a_new_one(runtime):
 
     with (
         patch.object(runtime, "_stop_process", side_effect=stop) as stopped,
-        patch("campus_inbox.connectors.chaoxing_runtime.shutil.which", return_value=None),
+        patch("campus_inbox.connectors.chaoxing_runtime.node_binary", return_value=None),
     ):
         result = runtime.start()
     stopped.assert_called_once()
@@ -485,8 +485,13 @@ def test_status_counts_events_without_loading_attachment_payloads(runtime):
 def test_stop_never_deletes_messages(runtime):
     runtime.handle(
         {
-            "type": "chat",
-            "job": {"kind": "chat", "message_id": "m1", "text": "保留原文", "captured_at": None},
+            "type": "notice",
+            "job": {
+                "kind": "course_notice",
+                "message_id": "m1",
+                "text": "保留原文",
+                "captured_at": None,
+            },
         }
     )
     runtime.pause()
@@ -520,8 +525,13 @@ def test_new_account_gets_a_new_identity_without_deleting_events(runtime):
     (runtime.data_dir / "scan-state.json").write_text('{"notice_cursor": 123}', encoding="utf-8")
     runtime.handle(
         {
-            "type": "chat",
-            "job": {"kind": "chat", "message_id": "m1", "text": "原消息", "captured_at": None},
+            "type": "notice",
+            "job": {
+                "kind": "course_notice",
+                "message_id": "m1",
+                "text": "原消息",
+                "captured_at": None,
+            },
         }
     )
     old_account = runtime.account_id
@@ -653,3 +663,63 @@ def test_temporary_session_file_lock_is_retried_without_losing_previous_session(
         runtime._save_session({"cookies": []})
     assert target.read_bytes() == b"new-encrypted"
     assert len(attempts) == 3
+
+
+def test_mac_node_discovery_works_without_shell_path(monkeypatch):
+    import sys
+
+    from campus_inbox.connectors.chaoxing_runtime import node_binary
+
+    with (
+        patch.object(sys, "platform", "darwin"),
+        patch("campus_inbox.connectors.chaoxing_runtime.shutil.which", return_value=None),
+        patch.object(Path, "is_file", lambda p: str(p) == "/opt/homebrew/opt/node@24/bin/node"),
+        patch("campus_inbox.connectors.chaoxing_runtime.os.access", return_value=True),
+    ):
+        assert node_binary() == "/opt/homebrew/opt/node@24/bin/node"
+
+
+def test_windows_node_discovery_still_uses_path():
+    import sys
+
+    from campus_inbox.connectors.chaoxing_runtime import node_binary
+
+    with (
+        patch.object(sys, "platform", "win32"),
+        patch("campus_inbox.connectors.chaoxing_runtime.shutil.which", return_value="node.exe"),
+    ):
+        assert node_binary() == "node.exe"
+
+
+def test_vault_failure_warning_survives_connected_status(runtime):
+    with patch.object(runtime, "_save_session", side_effect=OSError("synthetic-secret")):
+        runtime.handle({"type": "session", "session": {"cookies": []}})
+    runtime.handle({"type": "status", "state": "connected", "checked": True})
+    assert runtime.status()["session_error"]
+    assert "synthetic-secret" not in runtime.status()["session_error"]
+    with patch.object(runtime, "_save_session"):
+        runtime.handle({"type": "session", "session": {"cookies": []}})
+    assert not runtime.status()["session_error"]
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        {"kind": "chat", "message_id": "filtered-chat", "text": "聊天不入箱"},
+        {
+            "kind": "course_notice",
+            "message_id": "filtered-old",
+            "text": "旧通知不入箱",
+            "captured_at": "2020-01-01T00:00:00+08:00",
+        },
+    ],
+)
+def test_scope_filter_acknowledges_without_storing_or_analyzing(runtime, job):
+    with patch.object(runtime.intake, "receive") as receive:
+        runtime.handle({"type": "chat" if job["kind"] == "chat" else "notice", "job": job})
+    receive.assert_not_called()
+    assert json.loads(runtime.stdin.getvalue()) == {
+        "type": "accepted",
+        "id": job["message_id"],
+        "complete": True,
+    }

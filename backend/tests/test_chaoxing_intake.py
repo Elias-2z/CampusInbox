@@ -764,3 +764,34 @@ def test_unreadable_text_attachment_keeps_original_and_stays_in_review(intake):
         assert attachment.status == "failed"
         directory = Path(intake.engine.url.database).parent / "uploads"
         assert original_path(directory, attachment).read_bytes() == b"\x00\x00"
+
+
+@pytest.mark.parametrize("retry_state", ["failed", "pending"])
+def test_interrupted_intake_reuses_saved_suggestion_without_nested_transaction(intake, retry_state):
+    event_id, _ = intake.receive("local-account", notice())
+    assert intake.process(event_id) == "done"
+    with Session(intake.engine) as session:
+        event = session.get(ChaoxingEvent, event_id)
+        suggestion_id = event.suggestion_id
+        event.state, event.suggestion_id = retry_state, None
+        session.add(event)
+        session.commit()
+    assert intake.process(event_id) == "done"
+    with Session(intake.engine) as session:
+        assert session.get(ChaoxingEvent, event_id).suggestion_id == suggestion_id
+        assert len(session.exec(select(Message)).all()) == 1
+        assert len(session.exec(select(Suggestion)).all()) == 1
+        assert session.exec(select(Task)).all() == []
+
+
+def test_learning_notice_end_time_reaches_review_without_creating_a_task(intake):
+    job = notice(text="软件工程作业：请提交需求分析报告。\n结束时间：2026-11-10 18:26")
+    event_id, _ = intake.receive("local-account", job)
+    assert intake.process(event_id) == "done"
+    with Session(intake.engine) as session:
+        event = session.get(ChaoxingEvent, event_id)
+        suggestion = session.get(Suggestion, event.suggestion_id)
+        assert suggestion.fields["due_at"] == "2026-11-10T10:26:00+00:00"
+        assert suggestion.evidence["due_at"]["method"] == "rule"
+        assert suggestion.status == "pending"
+        assert session.exec(select(Task)).all() == []

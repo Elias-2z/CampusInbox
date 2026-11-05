@@ -215,3 +215,63 @@ def test_source_supported_header_or_platform_is_not_a_valid_task_or_place():
     assert result.fields["title"] == ""
     assert result.fields["location"] == ""
     assert any("语义不符" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("label", ["结束时间", "作业结束时间", "任务结束时间", "考试结束时间"])
+def test_learning_platform_explicit_end_time_is_a_deadline(label):
+    text = f"软件工程作业：请提交需求分析报告。\n{label}：2026-11-10 18:26"
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=True)
+    assert result.fields["due_at"] == "2026-11-10T10:26:00+00:00"
+    assert result.fields["due_date"] is None
+    assert result.evidence["due_at"]["method"] == "rule"
+    assert result.evidence["due_at"]["quote"] in text
+
+
+def test_learning_start_and_end_on_same_line_choose_only_end():
+    text = "作业：请提交实验报告。开始时间：2026-11-01 08:00 结束时间：2026-11-10 18:26"
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=True)
+    assert result.fields["due_at"] == "2026-11-10T10:26:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "请提交实验报告。实验结束时间：2026-11-10 18:26",
+        "活动通知：请提交报名表。结束时间：2026-11-10 18:26",
+        "会议通知：请提交会议报告。会议结束时间：2026-11-10 18:26",
+        "请提交实验报告。实验时间：2026-11-10 08:00\n结束时间：2026-11-10 18:26",
+        "作业通知。不是结束时间：2026-11-10 18:26",
+    ],
+)
+def test_activity_end_fields_do_not_become_learning_deadlines(text):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=True)
+    assert result.fields["due_at"] is None
+    assert result.fields["due_date"] is None
+
+
+def test_learning_end_date_does_not_invent_a_clock():
+    result = extract_rules(
+        "请提交作业。结束日期：2026-11-10", ANCHOR, "Asia/Shanghai", scoped_deadline=True
+    )
+    assert result.fields["due_at"] is None
+    assert result.fields["due_date"] == "2026-11-10"
+
+
+def test_conflicting_learning_end_fields_require_review():
+    result = extract_rules(
+        "请提交作业。结束时间：2026-11-10 18:26\n截止时间：2026-11-11 20:00",
+        ANCHOR,
+        "Asia/Shanghai",
+        scoped_deadline=True,
+    )
+    assert result.fields["due_at"] is None
+    assert any("多个可能" in warning for warning in result.warnings)
+
+
+def test_learning_end_time_after_course_and_publication_metadata():
+    text = (
+        "课程名称：软件工程 作业名称：需求分析报告 "
+        "发布时间：2026-11-01 08:00 结束时间：2026-11-10 18:26"
+    )
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=True)
+    assert result.fields["due_at"] == "2026-11-10T10:26:00+00:00"

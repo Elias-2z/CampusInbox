@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from campus_inbox.connectors.chaoxing import (
     attachment_only_notice,
     public_notice_original,
 )
+from campus_inbox.connectors.chaoxing_scope import archive_excluded, skip_reason
 from campus_inbox.models import Attachment, LocalAttachmentExtraction, Message, Suggestion, Task
 
 HEARTBEAT_TIMEOUT = 90
@@ -39,10 +41,27 @@ COUNT_FIELDS = (
 )
 
 
+def node_binary():
+    node = shutil.which("node")
+    if node:
+        return node
+    # Finder/launchd apps do not inherit the user's shell PATH.
+    if sys.platform == "darwin":
+        for candidate in (
+            "/opt/homebrew/opt/node@24/bin/node",
+            "/usr/local/opt/node@24/bin/node",
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+        ):
+            if Path(candidate).is_file() and os.access(candidate, os.X_OK):
+                return candidate
+    return None
+
+
 def empty_sources():
     return {
         name: {
-            "state": "idle",
+            "state": "disabled" if name == "chat" else "idle",
             "coverage": "unknown",
             "last_checked": None,
             "last_complete": None,
@@ -90,6 +109,7 @@ class ChaoxingRuntime:
         self.account_id = ""
         self.state = "idle"
         self.error = ""
+        self.session_error = ""
         self.qr_ready = False
         self.last_received = None
         self.reader = None
@@ -138,6 +158,15 @@ class ChaoxingRuntime:
             )
             return {
                 "enabled": self.enabled,
+                "session_saved": (self.data_dir / "session.bin").is_file(),
+                "session_error": self.session_error,
+                "session_storage": (
+                    "macOS 钥匙串密钥 + 本机加密文件"
+                    if sys.platform == "darwin"
+                    else "Windows DPAPI 加密文件"
+                    if sys.platform == "win32"
+                    else "当前系统尚不支持安全保存登录"
+                ),
                 "state": "error" if freshness == "stale" else self.state,
                 "error": "学习通采集器无响应，请重新连接。" if freshness == "stale" else self.error,
                 "qr_ready": self.qr_ready and freshness != "stale",
@@ -290,12 +319,18 @@ class ChaoxingRuntime:
         raw = json.dumps(value, ensure_ascii=False).encode("utf-8")
         if not isinstance(value, dict) or len(raw) > 2 * 1024 * 1024:
             raise ValueError("session invalid")
-        encrypted = seal(raw)
+        encrypted = seal(raw, identity=self.data_dir)
         target = self.data_dir / "session.bin"
         temp = target.with_suffix(".tmp")
         for attempt in range(5):
             try:
-                temp.write_bytes(encrypted)
+                with os.fdopen(
+                    os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb"
+                ) as stream:
+                    stream.write(encrypted)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.chmod(temp, 0o600)
                 temp.replace(target)
                 break
             except PermissionError:
@@ -307,7 +342,11 @@ class ChaoxingRuntime:
         from campus_inbox.connectors.session_crypto import unseal
 
         path = self.data_dir / "session.bin"
-        return json.loads(unseal(path.read_bytes())) if path.is_file() else None
+        return (
+            json.loads(unseal(path.read_bytes(), identity=self.data_dir))
+            if path.is_file()
+            else None
+        )
 
     def _fetch_original(self, job, item):
         """Use the existing collector's source/permission-checked downloader."""
@@ -335,7 +374,7 @@ class ChaoxingRuntime:
                     content.extend(chunk)
             return bytes(content)
         session_data = self._load_session()
-        node = shutil.which("node")
+        node = node_binary()
         script = self.worker_root / "desktop-sync" / "original-file.cjs"
         if not node or not script.is_file() or not isinstance(session_data, dict):
             raise ValueError("请先登录学习通并安装采集器依赖。")
@@ -568,7 +607,11 @@ class ChaoxingRuntime:
                     self.state = state
                 self.qr_ready = bool(message.get("qr_ready")) and self.state == "waiting_scan"
                 if self.state in {"retrying", "error", "expired"}:
-                    self.error = "学习通暂时无法同步，请检查网络或重新登录。"
+                    self.error = (
+                        "未找到学习通专用浏览器，请安装 Chrome，或按说明安装 Playwright Chromium。"
+                        if message.get("error") == "browser_missing"
+                        else "学习通暂时无法同步，请检查网络或重新登录。"
+                    )
                 elif self.state in {"connected", "syncing"}:
                     self.error = ""
                     if self.state == "connected" and message.get("checked") is True:
@@ -577,9 +620,14 @@ class ChaoxingRuntime:
         if kind == "session":
             try:
                 self._save_session(message.get("session"))
+                with self.lock:
+                    self.session_error = ""
             except Exception:
                 with self.lock:
-                    self.error = "登录状态无法安全保存，重启后可能需要重新扫码。"
+                    self.session_error = (
+                        "登录状态无法安全保存，重启后可能需要重新扫码；请检查钥匙串或系统凭据权限。"
+                    )
+                    self.error = self.session_error
             return
         if kind not in {"notice", "chat", "task_center", "checkin_activity"}:
             return
@@ -591,6 +639,11 @@ class ChaoxingRuntime:
             "checkin_activity": "checkin_activity",
         }[kind]
         if not isinstance(job, dict) or job.get("kind") != expected:
+            return
+        if skip_reason(job):
+            ident = job.get("message_id")
+            if isinstance(ident, str) and 0 < len(ident) <= 200:
+                self._command({"type": "accepted", "id": ident, "complete": True})
             return
         if kind == "chat" and job.get("direction") == "sent":
             if isinstance(job.get("message_id"), str) and 0 < len(job["message_id"]) <= 200:
@@ -796,8 +849,11 @@ class ChaoxingRuntime:
                 session.commit()
             self.enabled = True
             self.stopping.clear()
-            self.data_dir.mkdir(parents=True, exist_ok=True)
-            node = shutil.which("node")
+            archive_excluded(self.engine)
+            self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            if sys.platform == "darwin":
+                self.data_dir.chmod(0o700)
+            node = node_binary()
             if not node:
                 self.state, self.error = "error", "未找到 Node.js，请先按说明安装依赖。"
                 return self.status()
@@ -907,6 +963,7 @@ class ChaoxingRuntime:
                 session.add(row)
                 session.commit()
             self.state, self.error = "idle", ""
+            self.session_error = ""
             self.sources = empty_sources()
             self.sections = {}
             self.section_tasks = {}

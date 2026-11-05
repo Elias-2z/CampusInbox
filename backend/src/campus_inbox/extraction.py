@@ -219,9 +219,30 @@ def lab_schedule_quotes(text: str) -> list[str]:
     return quotes
 
 
-def deadline_clause_score(text: str, start: int, end: int) -> int:
+def learning_end_label(text: str, prefix: str) -> bool:
+    """An explicit learning-platform end field, not the end of a class/activity."""
+    label = re.search(
+        r"(?P<task>作业|考试|测验|任务|提交)?结束(?:时间|日期)[：:\s为至到]*$", prefix
+    )
+    if not label or re.search(r"(?:并非|不是|无需|不用|不要)[^：:]{0,12}[：:\s]*$", prefix):
+        return False
+    if label["task"]:
+        return True
+    if re.search(
+        r"(?:实验(?:课)?|课程|课堂|上课|活动|会议|讲座|直播|签到)(?:的)?\s*$",
+        prefix[: label.start()],
+    ):
+        return False
+    return not re.search(
+        r"实验(?:时间|安排)|上课时间|课程时间|活动(?:时间|安排|通知)|会议|讲座|直播|签到", text
+    )
+
+
+def deadline_clause_score(text: str, start: int, end: int, *, learning_end: bool = False) -> int:
     prefix = re.split(r"[，,。；;！!？?\n]", text[:start])[-1].strip()
     suffix = re.split(r"[，,。；;！!？?\n]", text[end:])[0].strip()
+    if learning_end and learning_end_label(text, prefix):
+        return 2
     if re.search(r"发布时间|发布于|布置于|开始时间|开课时间|实验时间", prefix):
         return 0
     if re.match(r"发布|布置|发出|收到|之后|以后|上课(?!前)|开始(?!前)", suffix):
@@ -321,7 +342,7 @@ def parse_deadline(
         if re.match(r"\s*(?:发布|布置|发出|收到|之后|以后|上课(?!前)|开始(?!前))", nearby):
             score = 0
         if scoped_deadline:
-            score = deadline_clause_score(text, match.start(), end)
+            score = deadline_clause_score(text, match.start(), end, learning_end=True)
         candidates.append((score, due, text[match.start() : end]))
     if not candidates:
         if found_date and not warnings:
@@ -361,7 +382,9 @@ def parse_date_only(
     for match in DATE.finditer(text):
         if TIME.match(text[match.end() :]):
             continue
-        if scoped_deadline and not deadline_clause_score(text, match.start(), match.end()):
+        if scoped_deadline and not deadline_clause_score(
+            text, match.start(), match.end(), learning_end=True
+        ):
             continue
         prefix = re.split(r"[，,。；;！!？?\n]", text[: match.start()])[-1][-20:]
         suffix = re.split(r"[，,。；;！!？?\n]", text[match.end() :])[0][:20]
@@ -369,6 +392,7 @@ def parse_date_only(
             continue
         if not (
             re.search(r"截止|截至|最晚|最迟|延期至|延至|改至|改到", prefix)
+            or (scoped_deadline and learning_end_label(text, prefix.strip()))
             or REVISED_DEADLINE_PREFIX.search(prefix.strip())
             or re.match(r"\s*(?:之前|以前|前|截止|为止|提交|上交|上传|完成)", suffix)
         ):

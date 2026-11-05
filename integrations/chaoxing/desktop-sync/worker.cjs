@@ -2,6 +2,8 @@
 'use strict';
 const fs=require('fs'),path=require('path'),readline=require('readline'),crypto=require('crypto');
 const {chromium}=require('playwright');
+const {launchBrowser}=require('./browser.cjs');
+const {withinNoticeWindow,noticeListInWindow}=require('./scope.cjs');
 const {ChatCollector}=require('./chat.cjs');
 const {TaskCenterCollector}=require('./task-center.cjs');
 const {installLiveCapture}=require('./live-capture.cjs');
@@ -148,7 +150,7 @@ function watchMainPage(owned,epoch){
   });
 }
 async function createBrowser(epoch,session,headless){
-  const launched=await chromium.launch({channel:'msedge',headless});
+  const launched=await launchBrowser(chromium,headless);
   if(!active||epoch!==generation){await launched.close();return false}
   browser=launched;
   launched.on('disconnected',()=>{
@@ -283,12 +285,14 @@ async function scan(epoch){
       if(visible){await disposeBrowser();if(!await createBrowser(epoch,session,true))throw fault('interrupted');await load(page,'https://i.chaoxing.com',epoch,'portal_navigation');visible=false;await ready()}
       everConnected=true;next=15000;
     }
-    if(!chatCollector){createChatCollector(epoch);scanChats(epoch).catch(()=>{})}
+    // Chat collection is intentionally disabled; only course notices and platform tasks.
     if(!taskCollector){createTaskCollector(epoch);scanTasks(epoch).catch(()=>{})}
     source('notice','syncing','',{checked_count:0,captured_count:0,failed_count:0,pending_count:retryAt.size});phase='list_ready';const frame=await inbox();if(!frame)throw fault('dom');
     if(!await load(frame,frame.url(),epoch,'list_navigation','.dataBody_item,.dataBody','list_ready')){status('expired','expired');return}
     if(!noticeFrame())throw fault('dom');
-    await parser(frame);const listing=await expandNoticeList(frame,epoch),rows=listing.rows;
+    await parser(frame);const listing=await expandNoticeList(frame,epoch),rows=listing.rows.filter(row=>noticeListInWindow(row.time));
+    const scopedIds=new Set(rows.map(row=>'notice_'+new URL(row.url).pathname.split('/')[3].replace(/^\$[A-Z]+\$/,'')));
+    for(const id of noticeMediaGaps.keys())if(!scopedIds.has(id)){noticeMediaGaps.delete(id);noticeMediaOnly.delete(id);retryAt.delete(id);retryCount.delete(id)}
     let detail,checked=0,captured=0,revisited=0,partialCount=0,partial=false,expired=false,partialReason='',partialStage='';const capturedIds=new Set(),scanDeadline=Date.now()+90000;status('syncing');
     try{
       const cursorIndex=rows.findIndex(row=>hashKey(row.id||row.url)===rowCursorId);
@@ -334,6 +338,7 @@ async function scan(epoch){
           saveScanState();
           if(!job&&mediaPending>0){noticeMediaOnly.add(id);saveScanState();continue}
           if(!job)throw fault('dom');
+          if(!withinNoticeWindow(job.captured_at)){accepted.add(id);retryAt.delete(id);continue}
           const prepared=await prepare(job);if(active&&epoch===generation){emit({type:'notice',job:prepared});captured++;capturedIds.add(id);retryAt.delete(id);retryCount.delete(id);noticeReviewedAt.delete(id);noticeReviewedAt.set(id,Date.now());if(noticeReviewedAt.size>10000)noticeReviewedAt.delete(noticeReviewedAt.keys().next().value);saveScanState()}
         }catch(error){
           if(!active||epoch!==generation)break;
@@ -378,7 +383,7 @@ async function start(command){
     if(!await createBrowser(epoch,savedSession,!visible))return;
     try{await load(page,'https://i.chaoxing.com',epoch,'portal_navigation')}catch{needRecovery=true}
     if(active&&epoch===generation)await scan(epoch);
-  }catch{status('error','runtime')}
+  }catch(error){status('error',error.code==='CAMPUSINBOX_BROWSER_MISSING'?'browser_missing':'runtime')}
 }
 let starting=Promise.resolve();
 readline.createInterface({input:process.stdin}).on('line',line=>{

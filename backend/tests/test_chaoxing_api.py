@@ -171,9 +171,9 @@ async def test_unknown_time_is_visible_for_review_before_entering_root_inbox(con
     runtime.stdin = io.StringIO()
     runtime.handle(
         {
-            "type": "chat",
+            "type": "notice",
             "job": {
-                "kind": "chat",
+                "kind": "course_notice",
                 "message_id": "m1",
                 "text": "软件工程明天提交实验报告",
                 "course": "软件工程",
@@ -418,7 +418,8 @@ async def test_platform_status_is_not_assigned_when_two_local_tasks_share_platfo
 async def test_actual_publication_time_requires_timezone(context):
     app, client = context
     event_id, _ = app.state.chaoxing.intake.receive(
-        "test", {"kind": "chat", "message_id": "m1", "text": "明天提交作业", "captured_at": None}
+        "test",
+        {"kind": "course_notice", "message_id": "m1", "text": "明天提交作业", "captured_at": None},
     )
     result = await client.post(
         f"/api/connectors/chaoxing/events/{event_id}/resolve",

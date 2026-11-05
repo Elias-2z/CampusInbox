@@ -3,6 +3,7 @@
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const PORTAL='https://i.chaoxing.com';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function coursePortal(value){try{const u=new URL(value);return u.protocol==='https:'&&!u.port&&!u.username&&!u.password&&['mooc2-ans.chaoxing.com','mooc1-1.chaoxing.com'].includes(u.hostname)&&u.pathname==='/visit/interaction'}catch{return false}}
 const official=value=>{try{const u=new URL(value);return u.protocol==='https:'&&(u.hostname==='chaoxing.com'||u.hostname.endsWith('.chaoxing.com'))}catch{return false}};
 const identity=value=>{try{const u=new URL(value);const values=new Map([...u.searchParams].map(([key,id])=>[key.toLowerCase().replace(/[_-]/g,''),id.trim()]));return {courseId:values.get('courseid')||'',classId:values.get('classid')||values.get('clazzid')||''}}catch{return {courseId:'',classId:''}}};
 const hasIdentity=value=>Boolean(value?.courseId&&value?.classId);
@@ -138,7 +139,7 @@ class TaskCenterCollector{
   if(response?.status()>=400)throw failure(response.status()>=500?'http_5xx':'http_error');
   for(let i=0;i<50&&this.isCurrent();i++){
    if(this.page.frames().some(f=>{try{const u=new URL(f.url());return u.hostname==='passport2.chaoxing.com'&&u.pathname.startsWith('/login')}catch{return false}}))throw failure('expired');
-   const frame=this.page.frames().find(f=>{try{const u=new URL(f.url());return u.origin==='https://mooc2-ans.chaoxing.com'&&u.pathname==='/visit/interaction'}catch{return false}});
+   const frame=this.page.frames().find(f=>coursePortal(f.url()));
    if(frame&&await frame.locator('a.color1').count())return frame;
    await sleep(300);
   }
@@ -279,4 +280,4 @@ class TaskCenterCollector{
  }
  async close(){const page=this.page;this.page=null;if(page)await page.close().catch(()=>{})}
 }
-module.exports={TaskCenterCollector};
+module.exports={TaskCenterCollector,coursePortal};

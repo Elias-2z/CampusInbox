@@ -14,6 +14,7 @@ from sqlmodel import Field, Session, SQLModel
 from starlette.concurrency import run_in_threadpool
 
 from campus_inbox.connectors.chaoxing_api import loopback
+from campus_inbox.connectors.chaoxing_scope import skip_reason
 
 SOURCE = Path(__file__).resolve().parents[4] / "local-assistant" / "browser-companion"
 FILES = (
@@ -147,6 +148,8 @@ def router(runtime):
             account = "browser:" + digest
             if not await run_in_threadpool(is_paired, digest):
                 raise HTTPException(401, "请重新配对网页组件。")
+            if skip_reason(job):
+                return {"accepted": True, "filtered": True}
             event_id, _ = await run_in_threadpool(runtime.intake.receive, account, job)
         except (ValueError, TypeError, RecursionError):
             raise HTTPException(422, "网页消息格式无效。") from None

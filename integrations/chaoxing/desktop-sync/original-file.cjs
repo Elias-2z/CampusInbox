@@ -39,7 +39,7 @@ if(require.main===module){
  let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',s=>input+=s);process.stdin.on('end',async()=>{
   let browser;try{
    const {session,job,file}=JSON.parse(input);input='';
-   const {chromium}=require('playwright');browser=await chromium.launch({channel:'msedge',headless:true});
+   const {chromium}=require('playwright');browser=await require('./browser.cjs').launchBrowser(chromium,true);
    const context=await browser.newContext({storageState:session});
    const bytes=await downloadOriginal(context,job,file);
    process.stdout.write(JSON.stringify({content_base64:bytes.toString('base64')}));

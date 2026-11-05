@@ -7,19 +7,10 @@ function overdue(task: Task) {
   return deadlineExpired(task, store.clock) && ['todo', 'in_progress', 'done'].includes(task.status)
 }
 function toggle(task: Task, event: Event) {
-  // Restore the old state until the server confirms the change.
-  ;(event.target as HTMLInputElement).checked = ['done', 'completed', 'submitted'].includes(
-    task.status,
-  )
-  if (task.status === 'done') {
-    if (!window.confirm('确认已在原平台提交这项任务？')) return
-    void store.changeStatus(task, 'submitted')
-  } else {
-    void store.changeStatus(
-      task,
-      ['completed', 'submitted'].includes(task.status) ? 'todo' : 'done',
-    )
-  }
+  const complete = ['completed', 'submitted'].includes(task.status)
+  // Keep the previous state until the local task update succeeds.
+  ;(event.target as HTMLInputElement).checked = complete
+  void store.changeStatus(task, complete ? 'todo' : 'completed')
 }
 </script>
 <template>
@@ -33,9 +24,9 @@ function toggle(task: Task, event: Event) {
       <input
         class="ci-check cursor-interaction"
         type="checkbox"
-        :checked="['done', 'completed', 'submitted'].includes(task.status)"
+        :checked="['completed', 'submitted'].includes(task.status)"
         :disabled="store.busy || ['cancelled', 'archived'].includes(task.status)"
-        :aria-label="`${task.status === 'done' ? '标记已提交' : ['completed', 'submitted'].includes(task.status) ? '重新打开' : '完成'}：${task.title}`"
+        :aria-label="`${['completed', 'submitted'].includes(task.status) ? '重新打开' : '完成'}：${task.title}`"
         @change="toggle(task, $event)"
       />
       <div class="ci-taskcontent">
@@ -46,7 +37,13 @@ function toggle(task: Task, event: Event) {
           <span class="ci-tag" :data-course="task.course">{{ task.course || '待分类' }}</span
           ><span :class="{ 'ci-due': overdue(task) }"
             >{{ overdue(task) ? '已逾期 · ' : '' }}{{ displayDeadline(task) }}</span
-          ><span v-if="task.status !== 'todo'">{{ statusNames[task.status] }}</span>
+          ><span v-if="task.status !== 'todo'">{{
+            task.status === 'done'
+              ? '待办'
+              : task.status === 'submitted'
+                ? '已完成'
+                : statusNames[task.status]
+          }}</span>
         </div>
       </div>
       <RouterLink

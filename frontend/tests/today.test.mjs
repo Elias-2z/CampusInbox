@@ -105,7 +105,7 @@ test('home hides expired work and calculates progress from completed and remaini
   ])
   assert.match(html, /还有 3 件事等你/)
   assert.match(html, /3 项待办/)
-  assert.match(html, /已完成 1 \/ 未提交 3/)
+  assert.match(html, /已完成 1 \/ 待办 3/)
   assert.match(html, /aria-valuenow="1"[^>]*aria-valuemax="4"/)
   assert.match(html, /width:25%/)
   assert.doesNotMatch(html, /past-todo|past-progress|due-now/)
@@ -138,7 +138,7 @@ test('home reminder overview omits overdue and expired upcoming reminders', asyn
   assert.doesNotMatch(html, /expired|due-now-reminder|already-read/)
 })
 
-test('date-only tasks stay active through their date and preserve submission distinctions', async () => {
+test('date-only tasks and legacy done records stay actionable with simple completion controls', async () => {
   const html = await render(
     [
       { ...task('yesterday', 'todo', null), due_date: '2026-10-31' },
@@ -149,10 +149,10 @@ test('date-only tasks stay active through their date and preserve submission dis
     [{ ...reminder('today-reminder', null), due_date: '2026-11-01' }],
   )
   assert.match(html, /2 项待办/)
-  assert.match(html, /已完成 1 \/ 未提交 2/)
+  assert.match(html, /已完成 1 \/ 待办 2/)
   assert.match(html, /2026\/11\/01（仅日期）/)
-  assert.match(html, /已做完，未提交/)
-  assert.match(html, /aria-label="标记已提交：today-done"/)
+  assert.doesNotMatch(html, /标记已提交|已做完，未提交/)
+  assert.match(html, /aria-label="完成：today-done"/)
   assert.match(html, /today-reminder/)
   assert.doesNotMatch(html, /yesterday/)
 })

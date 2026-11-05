@@ -471,24 +471,20 @@ const methodName = (method: string) =>
             :item="selected"
           />
           <template v-else-if="selected.action === 'create'">
-            <div class="ci-actions ci-merge-mode" aria-label="通知处理方式">
+            <div
+              v-if="
+                mergeMode ||
+                store.tasks.some((task) => ['todo', 'in_progress', 'done'].includes(task.status))
+              "
+              class="ci-review-mode"
+            >
               <button
-                class="ci-btn cursor-interaction"
-                :class="{ 'ci-primary': mergeMode }"
-                :aria-pressed="mergeMode"
+                type="button"
+                class="ci-btn ci-text cursor-interaction"
                 :disabled="store.busy"
-                @click="mergeMode = true"
+                @click="mergeMode = !mergeMode"
               >
-                🔗 关联已有任务
-              </button>
-              <button
-                class="ci-btn cursor-interaction"
-                :class="{ 'ci-primary': !mergeMode }"
-                :aria-pressed="!mergeMode"
-                :disabled="store.busy"
-                @click="mergeMode = false"
-              >
-                ✨ 创建独立任务
+                {{ mergeMode ? '← 返回新建任务' : '🔗 关联已有任务' }}
               </button>
             </div>
             <MergeReview v-if="mergeMode" :source="selected" />

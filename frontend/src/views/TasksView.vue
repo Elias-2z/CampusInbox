@@ -6,7 +6,6 @@ import {
   displayMessageTime,
   displayDeadline,
   fieldNames,
-  post,
   request,
   statusNames,
   type TaskDetail,
@@ -15,32 +14,15 @@ import {
 import { useCampus } from '@/stores/campus'
 import TaskList from '@/components/TaskList.vue'
 import AttachmentText from '@/components/AttachmentText.vue'
-import { addMaterialCandidate, type MaterialCandidate } from '@/materialSuggestions'
 const store = useCampus()
 const route = useRoute()
 const status = ref('active')
 const course = ref('')
 const search = ref('')
 const info = ref<TaskDetail | null>(null)
-const materialDraft = ref<{ text: string; done: boolean }[]>([])
-const newMaterial = ref('')
-const materialSuggestions = ref<MaterialCandidate[]>([])
-const materialSuggestionError = ref('')
-const suggestingMaterials = ref(false)
-const refreshingPlatform = ref(false)
-const platformRequest = ref('')
-const materialSuggestionsChecked = ref(false)
 const detailError = ref('')
 const detailLoading = ref(false)
 const selectedVersion = computed(() => store.tasks.find((t) => t.id === route.params.id)?.version)
-const platformStale = computed(() => {
-  const value = info.value?.platform_observation?.checked_at
-  return (
-    !value ||
-    !Number.isFinite(Date.parse(value)) ||
-    store.clock - Date.parse(value) > 24 * 60 * 60 * 1000
-  )
-})
 const courses = computed(() => [...new Set(store.tasks.map((t) => t.course).filter(Boolean))])
 const filtered = computed(() =>
   store.tasks.filter(
@@ -49,11 +31,29 @@ const filtered = computed(() =>
         ? t.status !== 'archived'
         : status.value === 'active'
           ? ['todo', 'in_progress', 'done'].includes(t.status)
-          : t.status === status.value) &&
+          : status.value === 'completed'
+            ? ['completed', 'submitted'].includes(t.status)
+            : t.status === status.value) &&
       (!course.value || t.course === course.value) &&
       t.title.toLowerCase().includes(search.value.trim().toLowerCase()),
   ),
 )
+const detailFields = computed(() =>
+  (
+    [
+      'course',
+      'due_at',
+      'submission_platform',
+      'submission_method',
+      'file_requirements',
+      'location',
+    ] as const
+  ).filter((key) => key === 'course' || key === 'due_at' || !!info.value?.task[key]),
+)
+const description = computed(() => {
+  const text = info.value?.task.description.trim() || ''
+  return info.value?.sources.some((source) => source.text.trim() === text) ? '' : text
+})
 let detailRequest = 0
 watch(
   () => [route.params.id, selectedVersion.value],
@@ -65,18 +65,12 @@ watch(
       return
     }
     info.value = null
-    platformRequest.value = ''
-    materialSuggestions.value = []
-    materialSuggestionError.value = ''
-    materialSuggestionsChecked.value = false
     detailLoading.value = true
     detailError.value = ''
     try {
       const result = await request<TaskDetail>(`/tasks/${route.params.id}`)
       if (current === detailRequest) {
         info.value = result
-        materialDraft.value = result.materials.map((item) => ({ ...item }))
-        newMaterial.value = ''
       }
     } catch (e) {
       if (current === detailRequest) detailError.value = store.errorMessage(e)
@@ -109,90 +103,6 @@ function platformEvidence(event: TaskEvent) {
   if (typeof value.status !== 'string' || typeof value.checked_at !== 'string') return ''
   return `平台当时显示：${value.status || '未能读取'} · 核对时间：${displayDate(value.checked_at, true)}`
 }
-function addMaterial() {
-  const text = newMaterial.value.trim()
-  if (!text || materialDraft.value.length >= 100) return
-  materialDraft.value.push({ text, done: false })
-  newMaterial.value = ''
-}
-async function saveMaterials() {
-  if (!info.value) return
-  const task = info.value.task
-  await store.mutate(
-    () =>
-      request<TaskDetail['task']>(`/tasks/${task.id}/materials`, {
-        method: 'PUT',
-        body: JSON.stringify({ expected_version: task.version, items: materialDraft.value }),
-      }),
-    '材料清单已保存。',
-  )
-}
-async function refreshPlatform() {
-  if (!info.value || refreshingPlatform.value) return
-  const taskId = info.value.task.id
-  refreshingPlatform.value = true
-  try {
-    const latest = await request<TaskDetail>(`/tasks/${taskId}`)
-    if (info.value?.task.id !== taskId) return
-    if (info.value.task.version !== latest.task.version) {
-      await store.refresh()
-    } else {
-      info.value.platform_observation = latest.platform_observation
-      info.value.checkin_closed = latest.checkin_closed
-    }
-  } catch (error) {
-    store.error = store.errorMessage(error)
-  } finally {
-    refreshingPlatform.value = false
-  }
-}
-async function recheckPlatform() {
-  if (!info.value || refreshingPlatform.value) return
-  const id = info.value.task.id
-  refreshingPlatform.value = true
-  platformRequest.value = ''
-  try {
-    await post(`/connectors/chaoxing/tasks/${id}/recheck`)
-    if (info.value?.task.id === id) platformRequest.value = '已请求重查，请稍后刷新本地记录。'
-  } catch (error) {
-    if (info.value?.task.id === id) store.error = store.errorMessage(error)
-  } finally {
-    refreshingPlatform.value = false
-  }
-}
-async function adoptPlatform() {
-  if (!info.value?.platform_observation?.suggested_status) return
-  const task = info.value.task
-  const observation = info.value.platform_observation
-  if (!window.confirm(`确认根据学习通“${observation.status}”更新任务状态？`)) return
-  await store.mutate(
-    () =>
-      post<TaskDetail['task']>(`/tasks/${task.id}/platform-status`, {
-        expected_version: task.version,
-        observation_id: observation.id,
-      }),
-    '任务状态已按学习通记录更新。',
-  )
-}
-async function suggestMaterials() {
-  if (!info.value || suggestingMaterials.value) return
-  const taskId = info.value.task.id
-  suggestingMaterials.value = true
-  materialSuggestionError.value = ''
-  try {
-    const result = await request<{ items: MaterialCandidate[] }>(
-      `/tasks/${taskId}/material-suggestions`,
-    )
-    if (info.value?.task.id === taskId) {
-      materialSuggestions.value = result.items
-      materialSuggestionsChecked.value = true
-    }
-  } catch (error) {
-    if (info.value?.task.id === taskId) materialSuggestionError.value = store.errorMessage(error)
-  } finally {
-    suggestingMaterials.value = false
-  }
-}
 </script>
 <template>
   <div class="ci-pagehead">
@@ -215,9 +125,6 @@ async function suggestMaterials() {
           { id: 'active', name: '待办与进行中' },
           { id: 'all', name: '全部' },
           { id: 'completed', name: '已完成' },
-          { id: 'done', name: '已做完，未提交' },
-          { id: 'submitted', name: '已提交' },
-          { id: 'cancelled', name: '已取消' },
           { id: 'archived', name: '已归档' },
         ]"
         :key="option.id"
@@ -257,183 +164,50 @@ async function suggestMaterials() {
       <p v-else-if="detailError" class="ci-inlineerror" role="alert">{{ detailError }}</p>
       <template v-else-if="info"
         ><h2 class="ci-detailtitle">{{ info.task.title }}</h2>
-        <span class="ci-tag">{{ statusNames[info.task.status] }}</span>
+        <span class="ci-tag">{{
+          info.task.status === 'done'
+            ? '待办'
+            : info.task.status === 'submitted'
+              ? '已完成'
+              : statusNames[info.task.status]
+        }}</span>
         <dl class="ci-detailgrid">
-          <div
-            v-for="key in [
-              'course',
-              'due_at',
-              'submission_platform',
-              'submission_method',
-              'file_requirements',
-              'location',
-            ] as const"
-            :key="key"
-          >
+          <div v-for="key in detailFields" :key="key">
             <dt>{{ fieldNames[key] }}</dt>
             <dd>
               {{ key === 'due_at' ? displayDeadline(info.task, true) : info.task[key] || '待补充' }}
             </dd>
           </div>
         </dl>
-        <p v-if="info.task.description" class="ci-description">{{ info.task.description }}</p>
+        <p v-if="description" class="ci-description">{{ description }}</p>
         <p v-if="info.task.remarks" class="ci-notice">备注：{{ info.task.remarks }}</p>
-        <section
-          v-if="
-            info.source.source_context?.platform === 'chaoxing' &&
-            info.source.source_context.kind === 'checkin_activity'
-          "
-          class="ci-detailsection"
-          aria-label="学习通签到"
-        >
-          <h3>学习通签到</h3>
-          <p v-if="info.checkin_closed" class="ci-notice">
-            该场签到已结束，提醒已停止。原任务和本地进度仍可查看。
-          </p>
-          <p v-else class="ci-notice">该场签到按学习通活动截止时间提醒。</p>
-          <button
-            class="ci-btn"
-            :disabled="store.busy || refreshingPlatform"
-            @click="refreshPlatform"
+        <p v-if="info.checkin_closed" class="ci-notice">该场签到已结束，提醒已停止。</p>
+        <details v-if="info.platform_observation" class="ci-detailsection">
+          <summary class="cursor-interaction">学习通参考记录</summary>
+          <p>平台显示：{{ info.platform_observation.status || '未能读取' }}</p>
+          <small class="ci-muted"
+            >最近核对：{{ displayDate(info.platform_observation.checked_at, true) }}</small
           >
-            {{ refreshingPlatform ? '正在刷新…' : '刷新本地记录' }}
-          </button>
-          <p v-if="platformRequest" class="ci-notice" role="status">{{ platformRequest }}</p>
-        </section>
-        <section
-          v-else-if="
-            info.platform_observation || info.source.source_context?.platform === 'chaoxing'
-          "
-          class="ci-detailsection"
-          aria-label="学习通状态"
-        >
-          <h3>📚 学习通状态</h3>
-          <p v-if="info.platform_observation">
-            平台显示：{{ info.platform_observation.status || '未能读取' }} · 核对时间：{{
-              displayDate(info.platform_observation.checked_at, true)
-            }}
-          </p>
-          <p v-else>尚无可确认的唯一平台状态。</p>
-          <p class="ci-notice">平台记录需确认后才更新本地任务。超过 24 小时请重新核对。</p>
-          <div class="ci-actions">
-            <button
-              v-if="
-                info.source.source_context?.platform === 'chaoxing' &&
-                info.source.source_context.kind === 'task_center'
-              "
-              type="button"
-              class="ci-btn"
-              :disabled="store.busy || refreshingPlatform"
-              @click="recheckPlatform"
-            >
-              重新核对学习通
-            </button>
-            <button
-              class="ci-btn"
-              :disabled="store.busy || refreshingPlatform"
-              @click="refreshPlatform"
-            >
-              {{ refreshingPlatform ? '正在刷新…' : '刷新本地记录' }}
-            </button>
-            <button
-              v-if="
-                info.platform_observation?.suggested_status &&
-                info.task.status !== info.platform_observation.suggested_status &&
-                !['archived', 'cancelled'].includes(info.task.status)
-              "
-              class="ci-btn ci-primary"
-              :disabled="store.busy || platformStale"
-              @click="adoptPlatform"
-            >
-              {{
-                info.platform_observation.suggested_status === 'submitted'
-                  ? '确认标记已提交'
-                  : '确认恢复待办'
-              }}
-            </button>
-          </div>
-          <p v-if="platformRequest" class="ci-notice" role="status">{{ platformRequest }}</p>
-        </section>
-        <section class="ci-detailsection" aria-label="材料清单">
-          <h3>📋 材料清单</h3>
-          <p class="ci-notice">勾选已准备的材料，保存后生效。</p>
-          <button
-            type="button"
-            class="ci-btn"
-            :disabled="store.busy || suggestingMaterials"
-            @click="suggestMaterials"
-          >
-            {{ suggestingMaterials ? '正在提取…' : '从原文提取建议' }}
-          </button>
-          <p v-if="materialSuggestionError" class="ci-inlineerror" role="alert">
-            {{ materialSuggestionError }}
-          </p>
-          <p
-            v-else-if="materialSuggestionsChecked && !materialSuggestions.length"
-            class="ci-notice"
-          >
-            没有找到明确的材料，请对照原文手动添加。
-          </p>
-          <div v-for="candidate in materialSuggestions" :key="candidate.text" class="ci-before">
-            <button
-              type="button"
-              class="ci-btn ci-text"
-              :disabled="
-                store.busy ||
-                materialDraft.some((item) => item.text === candidate.text) ||
-                materialDraft.length >= 100
-              "
-              @click="materialDraft = addMaterialCandidate(materialDraft, candidate.text)"
-            >
-              ＋ {{ candidate.text }}
-            </button>
-            <small class="ci-evidence">{{ candidate.source }}：{{ candidate.quote }}</small>
-          </div>
-          <div v-for="(item, index) in materialDraft" :key="index" class="ci-actions">
-            <label
-              ><input v-model="item.done" type="checkbox" :disabled="store.busy" />
-              {{ item.text }}</label
-            >
-            <button
-              type="button"
-              class="ci-btn ci-text"
-              :disabled="store.busy"
-              @click="materialDraft.splice(index, 1)"
-            >
-              移除
-            </button>
-          </div>
-          <div class="ci-actions">
-            <input
-              v-model="newMaterial"
-              class="ci-input"
-              maxlength="200"
-              placeholder="添加材料，例如实验报告"
-              aria-label="材料名称"
-              :disabled="store.busy"
-              @keydown.enter.prevent="addMaterial"
-            />
-            <button
-              type="button"
-              class="ci-btn"
-              :disabled="store.busy || !newMaterial.trim() || materialDraft.length >= 100"
-              @click="addMaterial"
-            >
-              添加
-            </button>
-            <button
-              type="button"
-              class="ci-btn ci-primary"
-              :disabled="store.busy"
-              @click="saveMaterials"
-            >
-              保存清单
-            </button>
-          </div>
-        </section>
+        </details>
         <div class="ci-actions ci-detailactions">
           <button
+            v-if="['todo', 'in_progress', 'done'].includes(info.task.status)"
             class="ci-btn ci-primary cursor-interaction"
+            :disabled="store.busy"
+            @click="store.changeStatus(info.task, 'completed')"
+          >
+            标记完成 ✓
+          </button>
+          <button
+            v-else-if="['completed', 'submitted'].includes(info.task.status)"
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="store.changeStatus(info.task, 'todo')"
+          >
+            恢复待办
+          </button>
+          <button
+            class="ci-btn cursor-interaction"
             :disabled="store.busy"
             @click="store.edit(info.task)"
           >
@@ -504,7 +278,7 @@ async function suggestMaterials() {
             关联后已有其他编辑，请核对历史后人工调整。
           </p>
         </section>
-        <details class="ci-detailsection" open>
+        <details class="ci-detailsection">
           <summary class="cursor-interaction">📎 通知来源 · {{ info.sources.length }} 条</summary>
           <article v-for="(source, index) in info.sources" :key="source.id" class="ci-linkedsource">
             <small class="ci-muted"

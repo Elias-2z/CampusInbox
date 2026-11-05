@@ -2,6 +2,9 @@ import { ref } from 'vue'
 import { localInput, post, request } from '@/api'
 
 export interface ChaoxingStatus {
+  session_error?: string
+  session_saved?: boolean
+  session_storage?: string
   task_sections?: {
     key: string
     course: string

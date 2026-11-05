@@ -5,6 +5,7 @@ description = "CampusInbox local API service"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "cryptography>=50.0.2",
     "dateparser>=1.4.3",
     "fastapi>=0.162.0",
     "httpx>=0.28.1",

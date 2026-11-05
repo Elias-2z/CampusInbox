@@ -911,6 +911,10 @@ class ChaoxingIntake:
                         session.add(suggestion)
                         session.commit()
                         suggestion = services.retry(session, suggestion, self.provider_factory)
+                    # A retry can reuse an already committed suggestion while the
+                    # intake's explicit transaction is still open. End that read
+                    # before reacquiring the write lock and refreshing the result.
+                    session.commit()
                     session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                     session.refresh(suggestion)
                     if suggestion.status == "pending" and reminder_only(job):

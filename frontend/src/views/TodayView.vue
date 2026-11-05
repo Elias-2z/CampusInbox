@@ -94,7 +94,7 @@ const total = computed(() => completed.value + active.value.length)
         </div>
       </div>
       <div v-if="total" class="ci-donebar">
-        <span>已完成 {{ completed }} / 未提交 {{ active.length }}</span>
+        <span>已完成 {{ completed }} / 待办 {{ active.length }}</span>
         <div
           class="ci-progress"
           role="progressbar"

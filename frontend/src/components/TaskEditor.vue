@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { draftOf, post, request, serialize, statusNames, type Task, type TaskStatus } from '@/api'
+import { draftOf, post, request, serialize, type Task, type TaskStatus } from '@/api'
 import { useCampus } from '@/stores/campus'
 import AppModal from './AppModal.vue'
 import TaskForm from './TaskForm.vue'
@@ -10,6 +10,13 @@ const router = useRouter()
 const task = store.editorTask
 const draft = ref(draftOf(task || {}))
 const status = ref<TaskStatus>(task?.status || 'todo')
+const editableStatuses = computed(() => [
+  [task?.status === 'done' ? 'done' : 'todo', '待办'],
+  ['in_progress', '进行中'],
+  [task?.status === 'submitted' ? 'submitted' : 'completed', '已完成'],
+  ['cancelled', '已取消'],
+  ['archived', '已归档'],
+])
 async function submit() {
   const result = await store.mutate(
     () =>
@@ -41,7 +48,9 @@ async function submit() {
       <TaskForm v-model="draft" :busy="store.busy" />
       <label v-if="task" class="ci-field"
         >状态<select v-model="status" class="ci-input" :disabled="store.busy">
-          <option v-for="(name, key) in statusNames" :key="key" :value="key">{{ name }}</option>
+          <option v-for="[key, name] in editableStatuses" :key="key" :value="key">
+            {{ name }}
+          </option>
         </select></label
       >
       <div v-if="store.error" class="ci-inlineerror" role="alert">{{ store.error }}</div>

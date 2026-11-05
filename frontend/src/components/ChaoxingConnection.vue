@@ -31,6 +31,7 @@ const qrError = ref(false)
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '本机时区'
 const stateNames: Record<string, string> = {
   idle: '尚未连接',
+  disabled: '不采集',
   paused: '已暂停',
   connecting: '正在连接',
   waiting_scan: '等待扫码',
@@ -147,7 +148,21 @@ function disconnect() {
     <p class="ci-notice ci-before">
       连接后尝试读取学习通通知和任务消息，仍可能遗漏内容，请以学习通为准。收到的消息会先进入收件箱审核，不会直接创建任务。
     </p>
+    <p class="ci-notice">
+      采集范围：近 30 天的课程通知 · 不采集聊天 · 作业和考试照常检查。发布时间未知的通知单独待核对。
+    </p>
     <p class="ci-notice" role="status">当前状态：{{ stateLabel }}</p>
+    <p v-if="status?.session_storage" class="ci-notice">
+      登录保存：{{ status.session_storage }}。
+      {{
+        status.session_saved
+          ? '本机已保存登录状态，重启后会尝试恢复；过期仍需扫码。'
+          : '扫码成功后在本机安全保存登录状态。'
+      }}
+    </p>
+    <p v-if="status?.session_error" class="ci-inlineerror" role="alert">
+      {{ status.session_error }}
+    </p>
     <div v-if="status" class="ci-before">
       <p class="ci-notice">
         待处理 {{ status.counts.pending }} · 已送入收件箱 {{ status.counts.done }} · 待填写时间

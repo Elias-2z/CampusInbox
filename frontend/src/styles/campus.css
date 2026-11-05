@@ -1886,3 +1886,9 @@ a {
     font-size: 24px;
   }
 }
+
+.app-root .ci-review-mode {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 12px;
+}
