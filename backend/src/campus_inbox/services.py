@@ -13,7 +13,7 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from campus_inbox import attachment_analysis, cancellations, merging
+from campus_inbox import attachment_analysis, cancellations, merging, triage
 from campus_inbox.deadlines import change_read, find_change, find_proposal
 from campus_inbox.extraction import (
     cancellation_supported,
@@ -181,7 +181,8 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         action=suggestion.action,
         method=suggestion.method,
         fields=suggestion.fields,
-        evidence=suggestion.evidence,
+        evidence={k: v for k, v in suggestion.evidence.items() if not k.startswith("_")},
+        classification=suggestion.evidence.get("_classification"),
         warnings=warnings,
         message=display_message,
         activity_schedule=(
@@ -235,7 +236,12 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
 
 
 def analyze(
-    session: Session, suggestion: Suggestion, provider_factory, *, use_active_model=False
+    session: Session,
+    suggestion: Suggestion,
+    provider_factory,
+    *,
+    use_active_model=False,
+    reclassify=False,
 ) -> Suggestion:
     message = get_or_404(session, Message, suggestion.message_id)
     time_known = not message.dedupe_key.startswith("unknown-time:")
@@ -270,7 +276,34 @@ def analyze(
         settings = config(session)
     text, sent_at, timezone = message.text, message.sent_at, message.timezone
     session.commit()  # Release database transaction before waiting for inference.
-    if time_known and result.needs_llm and result.action != "ignore":
+    classification = None
+    if message.dedupe_key.startswith("qq:"):
+        classification, model = triage.classify(
+            text,
+            settings,
+            provider_factory,
+            sent_at.replace(tzinfo=UTC).isoformat(),
+            timezone,
+            context,
+            reclassify=reclassify,
+        )
+        if classification.decision == "chat":
+            result.action = "ignore"
+            result.warnings = [classification.note]
+        else:
+            # Missing task keywords must not block semantic identification or manual review.
+            if result.action == "ignore":
+                result.action = "create"
+                result.warnings = [
+                    w for w in result.warnings if not w.startswith("未发现明确任务线索")
+                ]
+            result.warnings.append(classification.note)
+            if model:
+                result = merge_model(result, model, text, sent_at, timezone)
+        result.evidence["_classification"] = classification.model_dump()
+        if classification.method == "llm":
+            result.method = "mixed"
+    elif time_known and result.needs_llm and result.action != "ignore":
         if settings.enabled and settings.model and len(text) <= 12000:
             try:
                 provider = provider_factory(settings)
@@ -323,7 +356,10 @@ def analyze(
     suggestion.fields, suggestion.evidence = result.fields, result.evidence
     suggestion.warnings = list(dict.fromkeys(result.warnings))
     suggestion.action, suggestion.method = result.action, result.method
-    suggestion.status, suggestion.updated_at = "pending", now()
+    suggestion.status = (
+        "ignored" if classification and classification.decision == "chat" else "pending"
+    )
+    suggestion.updated_at = now()
     session.add(suggestion)
     session.commit()
     session.refresh(suggestion)
@@ -427,7 +463,9 @@ def retry(
     if changed != 1:
         raise HTTPException(409, "只有待审核建议可以重新识别；正在识别时请稍候。")
     session.refresh(suggestion)
-    return analyze(session, suggestion, provider_factory, use_active_model=use_active_model)
+    return analyze(
+        session, suggestion, provider_factory, use_active_model=use_active_model, reclassify=True
+    )
 
 
 def snapshot(task: Task) -> dict:

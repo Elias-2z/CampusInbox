@@ -360,6 +360,13 @@ class SplitDecision(BaseModel):
         return value
 
 
+class MessageClassification(BaseModel):
+    decision: Literal["notification", "chat", "uncertain"]
+    method: Literal["rule", "llm", "fallback"]
+    quote: str = ""
+    note: str = ""
+
+
 class InboxItem(BaseModel):
     id: str
     status: Literal["processing", "pending", "accepted", "ignored", "archived"]
@@ -367,6 +374,7 @@ class InboxItem(BaseModel):
     method: str
     fields: dict
     evidence: dict
+    classification: MessageClassification | None = None
     warnings: list[str]
     message: MessageRead
     activity_schedule: list[str] = Field(default_factory=list)

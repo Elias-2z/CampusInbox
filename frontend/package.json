@@ -16,7 +16,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:calendar": "node --test tests/calendar.test.mjs",
     "test:today": "node --test tests/today.test.mjs",
-    "test:inbox": "node --test tests/inbox-refresh.test.mjs"
+    "test:inbox": "node --test tests/inbox*.test.mjs"
   },
   "dependencies": {
     "element-plus": "^2.14.7",

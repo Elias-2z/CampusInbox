@@ -12,6 +12,7 @@ import {
   type TaskInput,
 } from '@/api'
 import { useCampus } from '@/stores/campus'
+import { inboxMatchesTab, inboxTab, inboxTabs } from '@/inboxTab'
 import TaskForm from '@/components/TaskForm.vue'
 import AttachmentText from '@/components/AttachmentText.vue'
 import DeadlineReview from '@/components/DeadlineReview.vue'
@@ -21,24 +22,15 @@ import MergeReview from '@/components/MergeReview.vue'
 const store = useCampus()
 const route = useRoute()
 const router = useRouter()
-const tab = ref('pending')
+const tab = ref('all')
+const historyOnly = ref(false)
 const selectedId = ref('')
 const drafts = reactive<Record<string, TaskInput>>({})
 const duplicateAllowed = ref(false)
 const mergeMode = ref(false)
-const tabs = [
-  { id: 'pending', title: '待处理' },
-  { id: 'accepted', title: '已处理' },
-  { id: 'ignored', title: '已忽略' },
-  { id: 'archived', title: '历史归档' },
-  { id: 'all', title: '全部' },
-]
 const items = computed(() =>
   store.inbox.filter(
-    (i) =>
-      tab.value === 'all' ||
-      i.status === tab.value ||
-      (tab.value === 'pending' && i.status === 'processing'),
+    (i) => inboxMatchesTab(i, tab.value) && (!historyOnly.value || i.status === 'archived'),
   ),
 )
 const selected = computed(
@@ -59,21 +51,30 @@ const draft = computed({
   },
 })
 watch(
-  () => [route.query.id, store.ready],
+  () => [route.query.id, route.query.view, store.ready],
   () => {
+    const view = inboxTabs.find((t) => t.id === route.query.view)?.id
+    if (view) tab.value = view
     const item = store.inbox.find((i) => i.id === route.query.id)
     if (item) {
       selectedId.value = item.id
-      tab.value = item.status === 'processing' ? 'pending' : item.status
+      if (!view || !inboxMatchesTab(item, view)) tab.value = inboxTab(item)
+      if (item.status !== 'archived') historyOnly.value = false
     }
   },
   { immediate: true },
 )
 watch(
-  () => store.inbox.find((i) => i.id === selectedId.value)?.status,
-  (status) => {
+  () => {
     const item = store.inbox.find((i) => i.id === selectedId.value)
-    if (status && item?.split_items.length) tab.value = status
+    return [item?.status, item?.classification?.decision]
+  },
+  () => {
+    const item = store.inbox.find((i) => i.id === selectedId.value)
+    if (item && !inboxMatchesTab(item, tab.value)) {
+      tab.value = inboxTab(item)
+      void router.replace({ query: { id: item.id, view: tab.value } })
+    }
   },
 )
 watch(
@@ -95,12 +96,13 @@ watch(
 )
 async function selectTab(value: string) {
   tab.value = value
+  historyOnly.value = false
   selectedId.value = ''
-  await router.replace('/inbox')
+  await router.replace({ path: '/inbox', query: { view: value } })
 }
 async function select(item: InboxItem) {
   selectedId.value = item.id
-  await router.replace({ query: { id: item.id } })
+  await router.replace({ query: { id: item.id, view: tab.value } })
 }
 async function accept() {
   if (!selected.value) return
@@ -174,20 +176,23 @@ const methodName = (method: string) =>
       <h1>你的信息中转站 📮</h1>
     </div>
   </div>
-  <div class="ci-filters" aria-label="收件箱状态">
+  <div class="ci-filters" aria-label="消息分类">
     <button
-      v-for="t in tabs"
+      v-for="t in inboxTabs"
       :key="t.id"
       class="ci-filter cursor-interaction"
       :aria-pressed="tab === t.id"
       @click="selectTab(t.id)"
     >
-      {{ t.title }}<span v-if="t.id === 'pending'"> · {{ store.pending.length }}</span>
+      {{ t.title }} · {{ store.inbox.filter((i) => inboxMatchesTab(i, t.id)).length }}
     </button>
   </div>
+  <label v-if="tab === 'all'" class="ci-notice">
+    <input v-model="historyOnly" type="checkbox" /> 仅看历史归档
+  </label>
   <div v-if="store.ready && !items.length" class="ci-first">
-    <span class="ci-firstemoji">{{ tab === 'pending' ? '🎉' : '📭' }}</span>
-    <h2>{{ tab === 'pending' ? '暂时没有待处理通知' : '这里还没有记录' }}</h2>
+    <span class="ci-firstemoji">📭</span>
+    <h2>这里还没有消息</h2>
     <p>这里集中审核识别结果。需要添加内容时，请到“我的任务”中选择“新建任务”。</p>
     <RouterLink class="ci-btn ci-primary cursor-interaction" to="/tasks">前往我的任务 →</RouterLink>
   </div>
@@ -227,18 +232,22 @@ const methodName = (method: string) =>
             : item.status === 'accepted'
               ? processedLabel(item)
               : item.status === 'ignored'
-                ? '已忽略'
+                ? item.classification?.decision === 'chat'
+                  ? '普通聊天 · 已分流'
+                  : '已忽略'
                 : item.status === 'archived'
                   ? '历史归档'
-                  : item.split_items.length
-                    ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
-                    : item.split_supported
-                      ? '多任务待拆分'
-                      : item.action === 'review'
-                        ? '变更待核对'
-                        : item.action === 'ignore'
-                          ? '可能无需创建任务'
-                          : '等待你确认'
+                  : item.classification?.decision === 'uncertain'
+                    ? '待核对 · 分类未确定'
+                    : item.split_items.length
+                      ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
+                      : item.split_supported
+                        ? '多任务待拆分'
+                        : item.action === 'review'
+                          ? '变更待核对'
+                          : item.action === 'ignore'
+                            ? '可能无需创建任务'
+                            : '等待你确认'
         }}</span>
       </button>
     </aside>
@@ -351,6 +360,20 @@ const methodName = (method: string) =>
             · {{ value.quote }}
           </p>
         </div>
+      </section>
+      <section v-if="selected.classification" class="ci-source" aria-label="消息分类">
+        <b>{{
+          { notification: '课程通知', chat: '普通聊天', uncertain: '待核对' }[
+            selected.classification.decision
+          ]
+        }}</b>
+        <p class="ci-notice">{{ selected.classification.note }}</p>
+        <p v-if="selected.classification.quote" class="ci-evidence">
+          分类依据：{{ selected.classification.quote }}
+        </p>
+        <p v-if="selected.classification.decision === 'chat'" class="ci-notice">
+          原文已保留。若判断有误，可恢复到待处理，再点击重新识别。
+        </p>
       </section>
       <section class="ci-form">
         <template v-if="selected.status === 'processing'"
