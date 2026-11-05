@@ -141,7 +141,7 @@ async function act(action: 'save' | 'sync' | 'retry' | 'disconnect') {
     </p>
     <p class="ci-notice">
       少量固定短回复会自动分流，其余消息交给已启用的本地 Ollama
-      模型分类并提取任务字段。普通聊天可在收件箱的“聊天分流”中查看和恢复；本地模型未启用或分析失败时，消息保留为待核对。
+      模型分类并提取任务字段。普通聊天可在收件箱的“忽略消息”中查看和恢复；本地模型未启用或分析失败时，消息进入“无法确认消息”。
     </p>
     <button
       v-if="status && !status.adapter.connected"

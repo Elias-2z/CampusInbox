@@ -30,6 +30,7 @@ async function render(
   activitySchedule = [],
   classification = null,
   raw = false,
+  view = '',
 ) {
   const pinia = createPinia()
   const store = useCampus(pinia)
@@ -71,7 +72,7 @@ async function render(
     history: createMemoryHistory(),
     routes: [{ path: '/inbox', component: InboxView }],
   })
-  await router.push('/inbox?id=suggestion')
+  await router.push({ path: '/inbox', query: { id: 'suggestion', ...(view ? { view } : {}) } })
   await router.isReady()
   const app = createSSRApp(InboxView)
   app.use(pinia)
@@ -80,7 +81,7 @@ async function render(
   return raw ? html : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
 }
 
-test('a routed chat opens in diversion with its quote and recovery control', async () => {
+test('a routed chat opens in ignored messages with its quote and recovery control', async () => {
   const html = await render(
     null,
     'ignored',
@@ -88,15 +89,28 @@ test('a routed chat opens in diversion with its quote and recovery control', asy
     { decision: 'chat', method: 'rule', quote: '好的，谢谢！', note: '完整消息为简短回复' },
     true,
   )
-  assert.match(html, /aria-pressed="true"[^>]*>\s*聊天分流/)
+  assert.match(html, /aria-pressed="true"[^>]*>\s*忽略消息/)
+  assert.doesNotMatch(html, />\s*(聊天分流|已处理|待处理|历史归档)\s*<\/button>/)
   assert.match(html, /分类依据：好的，谢谢！/)
   assert.match(html, /恢复为待处理/)
   assert.doesNotMatch(html, /确认创建任务/)
 })
 
-test('a restored chat opens in pending rather than diversion', async () => {
+test('a restored chat opens in uncertain messages', async () => {
   const html = await render(null, 'pending', [], { decision: 'chat', note: '', quote: '' }, true)
-  assert.match(html, /aria-pressed="true"[^>]*>\s*待处理/)
+  assert.match(html, /aria-pressed="true"[^>]*>\s*无法确认消息/)
+})
+
+test('all messages stays selected when a message is opened or the URL is reloaded', async () => {
+  const html = await render(null, 'ignored', [], { decision: 'chat' }, true, 'all')
+  assert.match(html, /aria-pressed="true"[^>]*>\s*全部消息/)
+  assert.match(html, /仅看历史归档/)
+})
+
+test('confirmed notifications stay important with a processed state label', async () => {
+  const html = await render(null, 'accepted', [], { decision: 'notification' }, true)
+  assert.match(html, /aria-pressed="true"[^>]*>\s*重要消息/)
+  assert.match(html, /已加入任务清单|已处理|已创建任务/)
 })
 
 test('learning-platform source shows its own fields without QQ labels', async () => {
