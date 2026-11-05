@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { courseEmoji, deadlineExpired, displayDeadline, statusNames, type Task } from '@/api'
 import { useCampus } from '@/stores/campus'
+import RecognitionBadge from '@/components/RecognitionBadge.vue'
 defineProps<{ tasks: Task[] }>()
 const store = useCampus()
 function overdue(task: Task) {
@@ -34,6 +35,7 @@ function toggle(task: Task, event: Event) {
           >{{ courseEmoji(task.course) }} {{ task.title }}</RouterLink
         >
         <div class="ci-taskmeta">
+          <RecognitionBadge :method="task.recognition_method || ''" :task-id="task.id" />
           <span class="ci-tag" :data-course="task.course">{{ task.course || '待分类' }}</span
           ><span :class="{ 'ci-due': overdue(task) }"
             >{{ overdue(task) ? '已逾期 · ' : '' }}{{ displayDeadline(task) }}</span

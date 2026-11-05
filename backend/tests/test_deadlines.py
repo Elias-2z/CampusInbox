@@ -336,3 +336,34 @@ async def test_additive_schema_initialization_preserves_old_data_and_model_setti
             assert result.json()["task"]["title"] == "已有真实任务"
             assert result.json()["source"]["text"] == "旧通知原文"
             assert (await c.get("/api/settings/model")).json()["model"] == "user-local:4b"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("本周三第一次实验课，不要迟到，记得穿工作服！", "2026-11-04"),
+        ("下周三第一次实验课，记得穿工作服。", "2026-11-11"),
+        ("明天上课，记得带实验服。", "2026-11-06"),
+        ("11月6日考试，请带学生证。", "2026-11-06"),
+        ("不是本周三上课，请等通知。", None),
+        ("本周三天气不错，实验报告另行通知。", None),
+    ],
+)
+def test_course_schedule_dates_use_message_time_without_inventing_clock(text, expected):
+    from campus_inbox.extraction import extract_rules
+
+    result = extract_rules(text, datetime(2026, 11, 5, 7, 8, tzinfo=UTC), "Asia/Shanghai")
+    assert result.fields["due_date"] == expected
+    assert result.fields["due_at"] is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["本周三18:00第一次实验课，不要迟到。", "2026年11月4日18:00实验课，不要迟到。"],
+)
+def test_course_schedule_explicit_clock_is_preserved(text):
+    from campus_inbox.extraction import extract_rules
+
+    result = extract_rules(text, datetime(2026, 11, 5, 7, 8, tzinfo=UTC), "Asia/Shanghai")
+    assert result.fields["due_at"] == "2026-11-04T10:00:00+00:00"
+    assert result.fields["due_date"] is None

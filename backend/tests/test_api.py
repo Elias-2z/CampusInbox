@@ -246,3 +246,19 @@ async def test_data_survives_app_restart(tmp_path):
             transport=httpx.ASGITransport(app=reopened), base_url="http://test"
         ) as c:
             assert (await c.get("/api/tasks")).json()[0]["title"] == "重启后保留"
+
+
+async def test_task_list_recognition_labels_match_persisted_creation_method(client):
+    item = await import_one(client)
+    accepted = await client.post(f"/api/suggestions/{item['id']}/accept", json=item["fields"])
+    assert accepted.status_code == 200
+    rule_task = accepted.json()
+    manual = await client.post("/api/tasks", json={"title": "手动提醒"})
+    assert manual.status_code == 200
+    rows = {task["id"]: task for task in (await client.get("/api/tasks")).json()}
+    assert rows[rule_task["id"]]["recognition_method"] == "rule"
+    assert rows[manual.json()["id"]]["recognition_method"] == "manual"
+    detail = (await client.get(f"/api/tasks/{rule_task['id']}")).json()
+    assert detail["method"] == rows[rule_task["id"]]["recognition_method"]
+    assert detail["evidence"]["due_at"]["method"] == "rule"
+    assert rule_task["version"] == detail["task"]["version"]

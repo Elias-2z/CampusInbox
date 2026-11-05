@@ -15,6 +15,7 @@ export interface TaskInput {
   remarks: string
 }
 export interface Task extends TaskInput {
+  recognition_method?: string
   checkin_closed?: boolean
   id: string
   suggestion_id: string

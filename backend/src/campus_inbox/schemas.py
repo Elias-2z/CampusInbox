@@ -127,6 +127,7 @@ class TaskRead(ReadModel):
 
 
 class TaskListItem(TaskRead):
+    recognition_method: str = ""
     checkin_closed: bool
 
 

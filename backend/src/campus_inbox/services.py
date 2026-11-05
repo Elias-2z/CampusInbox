@@ -556,8 +556,19 @@ def list_tasks(session: Session, current: datetime) -> list[TaskListItem]:
 
     tasks = session.exec(select(Task).order_by(Task.created_at.desc())).all()
     closed = closed_checkin_suggestions(session, [task.suggestion_id for task in tasks], current)
+    methods = dict(
+        session.exec(
+            select(Suggestion.id, Suggestion.method).where(
+                Suggestion.id.in_([task.suggestion_id for task in tasks])
+            )
+        ).all()
+    )
     return [
-        TaskListItem(**task.model_dump(), checkin_closed=task.suggestion_id in closed)
+        TaskListItem(
+            **task.model_dump(),
+            checkin_closed=task.suggestion_id in closed,
+            recognition_method=methods.get(task.suggestion_id, ""),
+        )
         for task in tasks
     ]
 

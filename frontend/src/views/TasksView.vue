@@ -14,6 +14,7 @@ import {
 import { useCampus } from '@/stores/campus'
 import TaskList from '@/components/TaskList.vue'
 import AttachmentText from '@/components/AttachmentText.vue'
+import RecognitionBadge from '@/components/RecognitionBadge.vue'
 const store = useCampus()
 const route = useRoute()
 const status = ref('active')
@@ -171,6 +172,7 @@ function platformEvidence(event: TaskEvent) {
               ? '已完成'
               : statusNames[info.task.status]
         }}</span>
+        <RecognitionBadge :method="info.method" :evidence="info.evidence" :message="info.source" />
         <dl class="ci-detailgrid">
           <div v-for="key in detailFields" :key="key">
             <dt>{{ fieldNames[key] }}</dt>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RecognitionBadge from '@/components/RecognitionBadge.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -162,10 +163,6 @@ function processedDescription(item: InboxItem) {
       : '这条变更已应用到原任务，来源已保存。'
   return '这条通知已经处理，重复导入不会再次创建任务。'
 }
-const methodName = (method: string) =>
-  ({ rule: '规则识别', mixed: '规则 + 模型辅助', manual: '手动创建', legacy: '旧版迁移，待核对' })[
-    method
-  ] || method
 </script>
 <template>
   <div class="ci-pagehead">
@@ -323,7 +320,13 @@ const methodName = (method: string) =>
           </details>
           <br />发送于 {{ displayMessageTime(selected.message, true) }}<br />消息时区：{{
             selected.message.timezone
-          }}<br />{{ methodName(selected.method) }}
+          }}
+          <RecognitionBadge
+            :method="selected.method"
+            :evidence="selected.evidence"
+            :message="selected.message"
+            :warnings="selected.warnings"
+          />
         </div>
         <div
           v-if="
