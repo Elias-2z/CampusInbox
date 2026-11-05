@@ -87,6 +87,12 @@ export interface ImportCapabilities {
 }
 export interface InboxItem {
   activity_schedule?: string[]
+  classification?: {
+    decision: 'notification' | 'chat' | 'uncertain'
+    method: 'rule' | 'llm' | 'fallback'
+    quote: string
+    note: string
+  } | null
   id: string
   status: 'processing' | 'pending' | 'accepted' | 'ignored' | 'archived'
   action: 'create' | 'review' | 'ignore'

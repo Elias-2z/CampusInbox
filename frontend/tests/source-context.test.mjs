@@ -24,7 +24,13 @@ before(async () => {
 })
 after(async () => await vite?.close())
 
-async function render(context, status = 'processing', activitySchedule = []) {
+async function render(
+  context,
+  status = 'processing',
+  activitySchedule = [],
+  classification = null,
+  raw = false,
+) {
   const pinia = createPinia()
   const store = useCampus(pinia)
   store.ready = true
@@ -37,6 +43,7 @@ async function render(context, status = 'processing', activitySchedule = []) {
       fields: {},
       evidence: {},
       warnings: [],
+      classification,
       activity_schedule: activitySchedule,
       message: {
         id: 'message',
@@ -69,8 +76,28 @@ async function render(context, status = 'processing', activitySchedule = []) {
   const app = createSSRApp(InboxView)
   app.use(pinia)
   app.use(router)
-  return (await renderToString(app)).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
+  const html = await renderToString(app)
+  return raw ? html : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
 }
+
+test('a routed chat opens in diversion with its quote and recovery control', async () => {
+  const html = await render(
+    null,
+    'ignored',
+    [],
+    { decision: 'chat', method: 'rule', quote: '好的，谢谢！', note: '完整消息为简短回复' },
+    true,
+  )
+  assert.match(html, /aria-pressed="true"[^>]*>\s*聊天分流/)
+  assert.match(html, /分类依据：好的，谢谢！/)
+  assert.match(html, /恢复为待处理/)
+  assert.doesNotMatch(html, /确认创建任务/)
+})
+
+test('a restored chat opens in pending rather than diversion', async () => {
+  const html = await render(null, 'pending', [], { decision: 'chat', note: '', quote: '' }, true)
+  assert.match(html, /aria-pressed="true"[^>]*>\s*待处理/)
+})
 
 test('learning-platform source shows its own fields without QQ labels', async () => {
   const text = await render({

@@ -12,6 +12,7 @@ import {
   type TaskInput,
 } from '@/api'
 import { useCampus } from '@/stores/campus'
+import { inboxTab } from '@/inboxTab'
 import TaskForm from '@/components/TaskForm.vue'
 import AttachmentText from '@/components/AttachmentText.vue'
 import DeadlineReview from '@/components/DeadlineReview.vue'
@@ -31,12 +32,14 @@ const tabs = [
   { id: 'accepted', title: '已处理' },
   { id: 'ignored', title: '已忽略' },
   { id: 'archived', title: '历史归档' },
+  { id: 'chat', title: '聊天分流' },
   { id: 'all', title: '全部' },
 ]
 const items = computed(() =>
   store.inbox.filter(
     (i) =>
       tab.value === 'all' ||
+      (tab.value === 'chat' && i.status === 'ignored' && i.classification?.decision === 'chat') ||
       i.status === tab.value ||
       (tab.value === 'pending' && i.status === 'processing'),
   ),
@@ -64,7 +67,7 @@ watch(
     const item = store.inbox.find((i) => i.id === route.query.id)
     if (item) {
       selectedId.value = item.id
-      tab.value = item.status === 'processing' ? 'pending' : item.status
+      tab.value = inboxTab(item)
     }
   },
   { immediate: true },
@@ -227,18 +230,22 @@ const methodName = (method: string) =>
             : item.status === 'accepted'
               ? processedLabel(item)
               : item.status === 'ignored'
-                ? '已忽略'
+                ? item.classification?.decision === 'chat'
+                  ? '普通聊天 · 已分流'
+                  : '已忽略'
                 : item.status === 'archived'
                   ? '历史归档'
-                  : item.split_items.length
-                    ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
-                    : item.split_supported
-                      ? '多任务待拆分'
-                      : item.action === 'review'
-                        ? '变更待核对'
-                        : item.action === 'ignore'
-                          ? '可能无需创建任务'
-                          : '等待你确认'
+                  : item.classification?.decision === 'uncertain'
+                    ? '待核对 · 分类未确定'
+                    : item.split_items.length
+                      ? `已确认 ${item.split_items.filter((d) => d.status === 'accepted').length} / 共 ${item.split_items.length} 项`
+                      : item.split_supported
+                        ? '多任务待拆分'
+                        : item.action === 'review'
+                          ? '变更待核对'
+                          : item.action === 'ignore'
+                            ? '可能无需创建任务'
+                            : '等待你确认'
         }}</span>
       </button>
     </aside>
@@ -351,6 +358,20 @@ const methodName = (method: string) =>
             · {{ value.quote }}
           </p>
         </div>
+      </section>
+      <section v-if="selected.classification" class="ci-source" aria-label="消息分类">
+        <b>{{
+          { notification: '课程通知', chat: '普通聊天', uncertain: '待核对' }[
+            selected.classification.decision
+          ]
+        }}</b>
+        <p class="ci-notice">{{ selected.classification.note }}</p>
+        <p v-if="selected.classification.quote" class="ci-evidence">
+          分类依据：{{ selected.classification.quote }}
+        </p>
+        <p v-if="selected.classification.decision === 'chat'" class="ci-notice">
+          原文已保留。若判断有误，可恢复到待处理，再点击重新识别。
+        </p>
       </section>
       <section class="ci-form">
         <template v-if="selected.status === 'processing'"
