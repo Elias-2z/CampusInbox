@@ -109,13 +109,13 @@ def cancellation_subject(text: str) -> str:
                 return ""
             continue
         tail = clause[action.end() :].strip()
-        subject = clause[: action.start()].strip(" 《》")
+        subject = clause[: action.start()].strip(" 《》【】")
         if subject and tail not in {"", "了"}:
             return ""
         if not subject and action[0] in {"取消", "作废"}:
-            subject = clause[action.end() :].strip(" 《》")
+            subject = clause[action.end() :].strip(" 《》【】")
         subject = re.sub(r"^(?:关于|通知|请注意|本次|本周|原定的?|现决定)", "", subject)
-        subject = re.sub(r"(?:已|现已|正式|予以|的)?$", "", subject).strip(" 《》")
+        subject = re.sub(r"(?:已|现已|正式|予以|的)?$", "", subject).strip(" 《》【】")
         for course in COURSES:
             if subject.startswith(course):
                 subject = subject[len(course) :].lstrip("的 ")
@@ -160,7 +160,7 @@ def infer_change_subject(text: str) -> str:
         change = DEADLINE_CHANGE.search(clause)
         if not change:
             continue
-        subject = clause[: change.start()].strip(" 《》")
+        subject = clause[: change.start()].strip(" 《》【】")
         subject = re.sub(r"^(?:关于|通知|请注意|本次)", "", subject)
         subject = re.sub(r"(?:的)?(?:(?:截止|提交|交付|上交)(?:时间|日期|期限))?的?$", "", subject)
         for course in COURSES:
@@ -274,6 +274,21 @@ def course_schedule_date(text: str, suffix: str) -> bool:
     )
 
 
+def active_date_matches(text: str):
+    """An explicit revision target supersedes the old deadline's date/precision."""
+    matches = list(DATE.finditer(text))
+    if not deadline_supported(text):
+        return matches
+    revised = []
+    for match in matches:
+        prefix = re.split(r"[，,。；;！!？?\n]", text[: match.start()])[-1].strip()
+        if REVISED_DEADLINE_PREFIX.search(prefix) or re.search(
+            r"新(?:的)?截止(?:时间|日期)?[：:\s为至到]*$", prefix
+        ):
+            revised.append(match)
+    return revised or matches
+
+
 def parse_deadline(
     text: str, sent_at: datetime, timezone: str, *, scoped_deadline: bool = False
 ) -> DateResult:
@@ -282,7 +297,7 @@ def parse_deadline(
     candidates: list[tuple[int, datetime, str]] = []
     warnings: list[str] = []
     found_date = False
-    for match in DATE.finditer(text):
+    for match in active_date_matches(text):
         found_date = True
         clock = TIME.match(text[match.end() :])
         if clock is None:
@@ -373,7 +388,7 @@ def parse_date_only(
     anchor = sent_at.replace(tzinfo=UTC) if sent_at.tzinfo is None else sent_at
     anchor = anchor.astimezone(ZoneInfo(timezone))
     candidates = []
-    for match in DATE.finditer(text):
+    for match in active_date_matches(text):
         if TIME.match(text[match.end() :]):
             continue
         if scoped_deadline and not deadline_clause_score(

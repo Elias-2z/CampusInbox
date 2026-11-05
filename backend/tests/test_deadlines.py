@@ -367,3 +367,21 @@ def test_course_schedule_explicit_clock_is_preserved(text):
     result = extract_rules(text, datetime(2026, 11, 5, 7, 8, tzinfo=UTC), "Asia/Shanghai")
     assert result.fields["due_at"] == "2026-11-04T10:00:00+00:00"
     assert result.fields["due_date"] is None
+
+
+async def test_old_date_and_new_clock_notice_previews_without_manual_time_or_early_update(client):
+    original = await task(client, title="作业", course="软件工程")
+    item = await notice(
+        client,
+        "【软件工程作业延期通知】原定于今天提交的软件工程作业，"
+        "现统一延期至后天23:59前提交。作业内容与提交方式保持不变。",
+    )
+    assert item["fields"]["due_at"] == "2026-10-31T15:59:00+00:00"
+    proposal = await preview(client, item, original)
+    assert proposal["proposed_due_at"] == "2026-10-31T15:59:00Z"
+    before = (await client.get(f"/api/tasks/{original['id']}")).json()["task"]
+    assert before["due_at"] == original["due_at"]
+    await confirm(client, proposal)
+    after = (await client.get(f"/api/tasks/{original['id']}")).json()["task"]
+    assert after["due_at"] == "2026-10-31T15:59:00Z"
+    assert len((await client.get("/api/tasks")).json()) == 1
