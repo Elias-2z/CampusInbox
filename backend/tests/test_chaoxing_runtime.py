@@ -665,7 +665,7 @@ def test_temporary_session_file_lock_is_retried_without_losing_previous_session(
     assert len(attempts) == 3
 
 
-def test_mac_node_discovery_works_without_shell_path(monkeypatch):
+def test_mac_node_discovery_works_without_shell_path():
     import sys
 
     from campus_inbox.connectors.chaoxing_runtime import node_binary
@@ -673,7 +673,9 @@ def test_mac_node_discovery_works_without_shell_path(monkeypatch):
     with (
         patch.object(sys, "platform", "darwin"),
         patch("campus_inbox.connectors.chaoxing_runtime.shutil.which", return_value=None),
-        patch.object(Path, "is_file", lambda p: str(p) == "/opt/homebrew/opt/node@24/bin/node"),
+        patch.object(
+            Path, "is_file", lambda p: p.as_posix() == "/opt/homebrew/opt/node@24/bin/node"
+        ),
         patch("campus_inbox.connectors.chaoxing_runtime.os.access", return_value=True),
     ):
         assert node_binary() == "/opt/homebrew/opt/node@24/bin/node"
