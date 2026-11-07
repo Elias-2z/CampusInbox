@@ -16,6 +16,7 @@ from sqlmodel import Session, select
 from campus_inbox import attachment_analysis, cancellations, merging
 from campus_inbox.deadlines import change_read, find_change, find_proposal
 from campus_inbox.extraction import (
+    Extraction,
     cancellation_supported,
     deadline_supported,
     extract_rules,
@@ -50,6 +51,8 @@ from campus_inbox.schemas import (
     TaskFields,
     TaskListItem,
     TaskRead,
+    TaskRecognitionPreview,
+    TaskRecognitionRequest,
     TaskUpdate,
 )
 
@@ -104,14 +107,57 @@ def normalized(value: str) -> str:
     return re.sub(r"[\W_]", "", value).casefold()
 
 
-def matching_tasks(session: Session, fields: dict) -> list[Task]:
+def course_key(value: str | None) -> str:
+    # Course aliases can name distinct real courses; only ignore whitespace/case.
+    return re.sub(r"\s+", "", value or "").casefold()
+
+
+def task_ordinals(title: str) -> dict[str, set[int]]:
+    from campus_inbox.extraction import number
+
+    result: dict[str, set[int]] = {}
+    pattern = (
+        r"第([一二三四五六七八九十两\d]+)(次|章|周|单元|讲)"
+        r"|(?:实验|作业|习题|练习|报告)([一二三四五六七八九十两\d]+)"
+    )
+    for match in re.finditer(pattern, normalized(title)):
+        value = number(match[1] or match[3])
+        if value >= 0:
+            result.setdefault(match[2] or "次", set()).add(value)
+    return result
+
+
+def association_conflict(fields: dict, task: Task) -> str | None:
+    course = course_key(fields.get("course"))
+    if course and course_key(task.course) and course != course_key(task.course):
+        return "课程不同"
+    kind = fields.get("kind")
+    if kind and kind != "other" and task.kind != "other" and kind != task.kind:
+        return "任务类型不同"
+    incoming, existing = task_ordinals(fields.get("title", "")), task_ordinals(task.title)
+    if any(incoming[key] != existing[key] for key in incoming.keys() & existing.keys()):
+        return "任务序号不同"
+    return None
+
+
+def source_fields(fields: dict, evidence: dict, context: dict) -> tuple[dict, dict]:
+    if context.get("platform") == "chaoxing" and context.get("course"):
+        course = context["course"]
+        return {**fields, "course": course}, {
+            **evidence,
+            "course": {"method": "connector", "quote": f"学习通来源的课程：{course}"},
+        }
+    return fields, evidence
+
+
+def matching_tasks(session: Session, fields: dict, *, message: Message | None = None) -> list[Task]:
     title = normalized(fields.get("title", ""))
     if len(title) < 2:
         return []
-    aliases = {"数据库": "数据库原理", "英语": "大学英语", "高数": "高等数学"}
+    from campus_inbox.connectors.platform_status import message_identity, task_identities
 
-    def course_key(value: str) -> str:
-        return aliases.get(value, value)
+    incoming_key = message_identity(session, message) if message else ""
+    identities = task_identities(session) if incoming_key else {}
 
     def experiment(value: str) -> int | None:
         from campus_inbox.extraction import number
@@ -122,7 +168,11 @@ def matching_tasks(session: Session, fields: dict) -> list[Task]:
     ranked = []
     for task in session.exec(select(Task).where(Task.status.notin_(["archived", "cancelled"]))):
         course = fields.get("course", "")
-        if course and task.course and course_key(course) != course_key(task.course):
+        if course_key(course) != course_key(task.course):
+            continue
+        if association_conflict(fields, task):
+            continue
+        if incoming_key and any(key != incoming_key for key in identities.get(task.id, set())):
             continue
         existing = normalized(task.title)
         incoming_number, existing_number = experiment(title), experiment(existing)
@@ -167,6 +217,7 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     message = get_or_404(session, Message, suggestion.message_id)
     display_message = message_read(session, message)
     context = display_message.source_context or {}
+    fields, evidence = source_fields(suggestion.fields, suggestion.evidence, context)
     is_checkin = context.get("kind") == "checkin_activity"
     supported = suggestion.action == "review" and deadline_supported(message.text)
     warnings = [
@@ -180,19 +231,14 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         status=suggestion.status,
         action=suggestion.action,
         method=suggestion.method,
-        fields=suggestion.fields,
-        evidence=suggestion.evidence,
+        fields=fields,
+        evidence=evidence,
         warnings=warnings,
         message=display_message,
-        activity_schedule=(
-            lab_schedule_quotes(message.text)
-            if context.get("platform") == "chaoxing"
-            and context.get("kind") in {"chat", "course_notice"}
-            else []
-        ),
+        activity_schedule=lab_schedule_quotes(message.text),
         matched_tasks=[
             TaskRead.model_validate(t)
-            for t in ([] if is_checkin else matching_tasks(session, suggestion.fields))
+            for t in ([] if is_checkin else matching_tasks(session, fields, message=message))
         ],
         task_id=(
             None
@@ -216,14 +262,21 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
         split_supported=suggestion.action == "review" and bool(numbered_parts(message.text)[1]),
         split_items=[
             SplitDraftRead(
-                **item.model_dump(exclude={"task_id"}),
+                **item.model_dump(exclude={"task_id", "fields", "evidence"}),
+                fields=source_fields(item.fields, item.evidence, context)[0],
+                evidence=source_fields(item.fields, item.evidence, context)[1],
                 task_id=item.task_id
                 or (split_merges[item.id].task_id if item.id in split_merges else None),
                 merge_change=merging.change_read(session, split_merges[item.id])
                 if item.id in split_merges
                 else None,
                 matched_tasks=[
-                    TaskRead.model_validate(t) for t in matching_tasks(session, item.fields)
+                    TaskRead.model_validate(t)
+                    for t in matching_tasks(
+                        session,
+                        source_fields(item.fields, item.evidence, context)[0],
+                        message=message,
+                    )
                 ],
             )
             for item in items
@@ -234,10 +287,14 @@ def inbox_item(session: Session, suggestion: Suggestion) -> InboxItem:
     )
 
 
-def analyze(
-    session: Session, suggestion: Suggestion, provider_factory, *, use_active_model=False
-) -> Suggestion:
-    message = get_or_404(session, Message, suggestion.message_id)
+def recognize_message(
+    session: Session,
+    message: Message,
+    provider_factory,
+    *,
+    use_active_model=False,
+    include_attachments=True,
+) -> Extraction:
     time_known = not message.dedupe_key.startswith("unknown-time:")
     scoped_deadline = message.dedupe_key.startswith("chaoxing:")
     result = extract_rules(
@@ -262,7 +319,10 @@ def analyze(
         if context:
             apply_platform_task(result, context)
             apply_platform_deadline(result, context)
-    if use_active_model and re.fullmatch(r"[0-9a-f]{64}", message.dedupe_key):
+    manual_task = message.source == "手动创建" and re.fullmatch(
+        r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", message.dedupe_key
+    )
+    if use_active_model and (re.fullmatch(r"[0-9a-f]{64}", message.dedupe_key) or manual_task):
         from campus_inbox.inference import active_config
 
         settings = active_config(session)
@@ -291,7 +351,11 @@ def analyze(
                 if len(text) > 12000
                 else "模型兜底未启用或未选择模型，可直接手动完善。"
             )
-    if not result.fields.get("course") and context and context["course"]:
+    if (
+        context
+        and context["course"]
+        and (not result.fields.get("course") or context.get("platform") == "chaoxing")
+    ):
         result.fields["course"] = context["course"]
         result.evidence["course"] = {
             "method": "connector",
@@ -307,7 +371,8 @@ def analyze(
         else 1
     )
     used_attachment = (
-        time_known
+        include_attachments
+        and time_known
         and attachment_count > 0
         and attachment_analysis.supplement(session, message, result, attachment_count)
     )
@@ -320,13 +385,104 @@ def analyze(
         and not used_attachment
     ):
         result.warnings.append("学习通附件或图片尚未用于任务识别，请查看原文及附件核对。")
+    return result
+
+
+def analyze(
+    session: Session, suggestion: Suggestion, provider_factory, *, use_active_model=False
+) -> Suggestion:
+    from campus_inbox.connectors import chaoxing
+
+    message = get_or_404(session, Message, suggestion.message_id)
+    result = recognize_message(
+        session, message, provider_factory, use_active_model=use_active_model
+    )
     suggestion.fields, suggestion.evidence = result.fields, result.evidence
     suggestion.warnings = list(dict.fromkeys(result.warnings))
     suggestion.action, suggestion.method = result.action, result.method
     suggestion.status, suggestion.updated_at = "pending", now()
+    if not message.dedupe_key.startswith("chaoxing:") and chaoxing.expired_task_notice(
+        {}, result, chaoxing.now(), message.timezone
+    ):
+        suggestion.status = "archived"
+        suggestion.warnings.append(chaoxing.EXPIRED_NOTICE)
     session.add(suggestion)
     session.commit()
     session.refresh(suggestion)
+    return suggestion
+
+
+def recognize_task(
+    session: Session, task: Task, body: TaskRecognitionRequest, provider_factory
+) -> TaskRecognitionPreview:
+    if task.version != body.expected_version:
+        raise HTTPException(409, "任务已发生变化，请重新读取后识别。")
+    snapshot_task = TaskRead.model_validate(task)
+    sources = detail(session, task).sources
+    message_id = body.message_id or task.message_id
+    if not any(source.id == message_id for source in sources):
+        raise HTTPException(422, "请选择该任务的原始通知。")
+    message = get_or_404(session, Message, message_id)
+    draft = session.exec(
+        select(SplitDraft).where(
+            SplitDraft.task_id == task.id, SplitDraft.suggestion_id == task.suggestion_id
+        )
+    ).first()
+    if message_id != task.message_id:
+        changes = session.exec(
+            select(MergeChange).where(
+                MergeChange.task_id == task.id,
+                MergeChange.split_draft_id.is_not(None),
+                MergeChange.undo_event_id.is_(None),
+            )
+        ).all()
+        linked = [
+            session.get(SplitDraft, change.split_draft_id)
+            for change in changes
+            if get_or_404(session, Suggestion, change.suggestion_id).message_id == message_id
+        ]
+        if len(linked) > 1:
+            raise HTTPException(422, "该来源关联了多个拆分条目，请选择其他原始通知。")
+        draft = linked[0] if linked else None
+    if draft:
+        message = Message(**{**message.model_dump(), "text": draft.quote})
+    result = recognize_message(
+        session,
+        message,
+        provider_factory,
+        use_active_model=True,
+        include_attachments=draft is None,
+    )
+    return TaskRecognitionPreview(
+        task=snapshot_task,
+        fields={key: value for key, value in result.fields.items() if key != "description"},
+        evidence=result.evidence,
+        warnings=list(dict.fromkeys(result.warnings)),
+        method=result.method,
+        message=message_read(session, message),
+    )
+
+
+def reuse_imported_suggestion(session: Session, message_id: str, *, manual: bool) -> Suggestion:
+    suggestion = session.exec(select(Suggestion).where(Suggestion.message_id == message_id)).one()
+    if manual and suggestion.status == "ignored":
+        drafts = session.exec(
+            select(SplitDraft).where(SplitDraft.suggestion_id == suggestion.id)
+        ).all()
+        if drafts and not any(draft.status == "pending" for draft in drafts):
+            raise HTTPException(409, "这条通知包含已处理的拆分条目，请在已忽略中逐项恢复待审核。")
+        session.execute(
+            update(Suggestion)
+            .where(Suggestion.id == suggestion.id, Suggestion.status == "ignored")
+            .values(status="pending", updated_at=now())
+        )
+        session.commit()
+        session.refresh(suggestion)
+    if manual and suggestion.status == "pending":
+        from campus_inbox.connectors.chaoxing import archive_expired
+
+        archive_expired(session, suggestion_id=suggestion.id)
+        session.refresh(suggestion)
     return suggestion
 
 
@@ -345,9 +501,9 @@ def import_message(
             raise HTTPException(409, "文件尚未解析完成，请先核对提取文本。")
         if attachment.message_id:
             # Repeated submission of a corrected OCR draft must not create another notice.
-            return session.exec(
-                select(Suggestion).where(Suggestion.message_id == attachment.message_id)
-            ).one()
+            return reuse_imported_suggestion(
+                session, attachment.message_id, manual=dedupe_key is None
+            )
     day = (
         body.sent_at.astimezone(ZoneInfo(body.timezone)).date().isoformat()
         if body.sent_at
@@ -370,7 +526,7 @@ def import_message(
             attachment.message_id = existing.id
             session.add(attachment)
             session.commit()
-        return session.exec(select(Suggestion).where(Suggestion.message_id == existing.id)).one()
+        return reuse_imported_suggestion(session, existing.id, manual=dedupe_key is None)
     message = Message(
         text=body.text,
         source=body.source,
@@ -397,9 +553,55 @@ def import_message(
             attachment.message_id = existing.id
             session.add(attachment)
             session.commit()
-        return session.exec(select(Suggestion).where(Suggestion.message_id == existing.id)).one()
+        return reuse_imported_suggestion(session, existing.id, manual=dedupe_key is None)
     session.refresh(suggestion)
     return analyze(session, suggestion, provider_factory, use_active_model=use_active_model)
+
+
+def refresh_attachment_suggestion(session: Session, message_id: str) -> None:
+    """Supplement a pending, unsplit draft without touching any confirmed task."""
+    source = session.exec(select(Suggestion).where(Suggestion.message_id == message_id)).first()
+    if source is None or source.status != "pending":
+        return
+    if session.exec(select(SplitDraft.id).where(SplitDraft.suggestion_id == source.id)).first():
+        return
+    message = get_or_404(session, Message, message_id)
+    if message.dedupe_key.startswith("unknown-time:"):
+        return
+    context = message_read(session, message).source_context or {}
+    count = context.get("attachment_analysis_count", 0)
+    if not count:
+        return
+    result = Extraction(
+        fields=dict(source.fields),
+        evidence=dict(source.evidence),
+        warnings=list(source.warnings),
+        action=source.action,
+        method=source.method,
+    )
+    if not attachment_analysis.supplement(session, message, result, count):
+        return
+    result.warnings = [
+        warning
+        for warning in result.warnings
+        if warning != "学习通附件或图片尚未用于任务识别，请查看原文及附件核对。"
+    ]
+    session.execute(
+        update(Suggestion)
+        .where(
+            Suggestion.id == source.id,
+            Suggestion.status == "pending",
+            Suggestion.updated_at == source.updated_at,
+        )
+        .values(
+            fields=result.fields,
+            evidence=result.evidence,
+            warnings=list(dict.fromkeys(result.warnings)),
+            action=result.action,
+            updated_at=now(),
+        )
+    )
+    session.commit()
 
 
 def retry(
@@ -444,13 +646,26 @@ def accept(session: Session, suggestion: Suggestion, body: AcceptSuggestion) -> 
         raise HTTPException(409, "建议已处理或仍在识别，请刷新后重试。")
     if suggestion.action != "create":
         raise HTTPException(409, "这条通知需要人工核对，不能直接按新任务入库。")
-    from campus_inbox.connectors.chaoxing import checkin_event, validate_checkin_accept
+    from campus_inbox.connectors.chaoxing import (
+        archive_expired,
+        checkin_event,
+        validate_checkin_accept,
+    )
+
+    previous_fields = suggestion.fields
+    if archive_expired(session, suggestion_id=suggestion.id):
+        raise HTTPException(409, suggestion.warnings[-1])
+    if suggestion.fields != previous_fields:
+        raise HTTPException(409, "通知的时间字段已更新，请刷新核对后确认。")
 
     checkin = checkin_event(session, get_or_404(session, Message, suggestion.message_id))
     fields = body.model_dump(exclude={"allow_duplicate"})
     if checkin:
         fields.update(due_at=validate_checkin_accept(session, checkin), due_date=None, kind="event")
-    elif matching_tasks(session, fields) and not body.allow_duplicate:
+    elif (
+        matching_tasks(session, fields, message=get_or_404(session, Message, suggestion.message_id))
+        and not body.allow_duplicate
+    ):
         raise HTTPException(409, "发现可能重复的任务，请核对并明确选择仍然创建。")
     fields["due_at"] = utc_value(fields["due_at"])
     task = Task(**fields, suggestion_id=suggestion.id, message_id=suggestion.message_id)

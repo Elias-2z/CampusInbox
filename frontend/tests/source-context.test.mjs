@@ -24,7 +24,13 @@ before(async () => {
 })
 after(async () => await vite?.close())
 
-async function render(context, status = 'processing', activitySchedule = []) {
+async function render(
+  context,
+  status = 'processing',
+  activitySchedule = [],
+  overrides = {},
+  raw = false,
+) {
   const pinia = createPinia()
   const store = useCampus(pinia)
   store.ready = true
@@ -58,6 +64,7 @@ async function render(context, status = 'processing', activitySchedule = []) {
       split_items: [],
       deadline_supported: false,
       deadline_change: null,
+      ...overrides,
     },
   ]
   const router = createRouter({
@@ -69,7 +76,8 @@ async function render(context, status = 'processing', activitySchedule = []) {
   const app = createSSRApp(InboxView)
   app.use(pinia)
   app.use(router)
-  return (await renderToString(app)).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
+  const html = await renderToString(app)
+  return raw ? html : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ')
 }
 
 test('learning-platform source shows its own fields without QQ labels', async () => {
@@ -100,6 +108,22 @@ test('archived notices show their history and can be restored', async () => {
   assert.match(text, /历史归档/)
   assert.match(text, /恢复为待处理/)
   assert.doesNotMatch(text, /确认创建任务/)
+})
+
+test('expired learning tasks remain readable without restoring them into pending', async () => {
+  const text = await render({ platform: 'chaoxing', closed_task_status: false }, 'archived', [], {
+    warnings: ['学习通截止日期已过，已放入历史归档，原文仍可查看。'],
+  })
+  assert.match(text, /历史归档/)
+  assert.doesNotMatch(text, /恢复为待处理/)
+})
+
+test('expired manual imports cannot be restored into pending either', async () => {
+  const text = await render(null, 'archived', [], {
+    warnings: ['截止日期已过，已放入历史归档，原文仍可查看。'],
+  })
+  assert.match(text, /历史归档/)
+  assert.doesNotMatch(text, /恢复为待处理/)
 })
 
 test('an experimental schedule is displayed with its original quote', async () => {
@@ -149,4 +173,58 @@ test('migrated unknown publication time is explicit and never displayed as epoch
   assert.match(text, /发布时间未知/)
   assert.match(text, /old-123/)
   assert.doesNotMatch(text, /1970|发送于 11\/3/)
+})
+
+test('every pending review mode exposes a single ignore action', async () => {
+  for (const overrides of [
+    {},
+    { matched_tasks: [{ id: 'task', title: '已有报告', status: 'todo' }] },
+    { deadline_supported: true },
+    { cancellation_supported: true },
+    { split_supported: true },
+  ]) {
+    const html = await render(null, 'pending', [], overrides, true)
+    assert.equal(
+      (html.match(/>\s*忽略这条建议\s*<\/button>/g) || []).length,
+      1,
+      JSON.stringify(overrides),
+    )
+  }
+})
+
+test('ignored split notices expose notice restoration', async () => {
+  const text = await render(null, 'ignored', [], { split_supported: true })
+  assert.match(text, /已忽略，原文仍在/)
+  assert.match(text, /恢复为待处理/)
+  assert.doesNotMatch(text, /忽略这条建议/)
+})
+
+test('split drafts remain individually restorable after every item was skipped', async () => {
+  const text = await render(null, 'ignored', [], {
+    split_items: [
+      {
+        id: 'draft',
+        position: 1,
+        status: 'ignored',
+        fields: {},
+        evidence: {},
+        warnings: [],
+        matched_tasks: [],
+      },
+    ],
+  })
+  assert.match(text, /恢复待审核/)
+})
+
+test('an expired split item cannot be restored but a skipped sibling can', async () => {
+  const draft = { fields: {}, evidence: {}, warnings: [], matched_tasks: [] }
+  const text = await render(null, 'ignored', [], {
+    split_items: [
+      { ...draft, id: 'past', position: 1, status: 'archived' },
+      { ...draft, id: 'skipped', position: 2, status: 'ignored' },
+    ],
+  })
+  assert.match(text, /此条已过期/)
+  assert.match(text, /恢复待审核/)
+  assert.doesNotMatch(text, /恢复为待处理/)
 })

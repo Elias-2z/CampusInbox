@@ -3,13 +3,14 @@ import io
 import json
 import threading
 import zipfile
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 from sqlmodel import Session
 
 from campus_inbox import attachments
+from campus_inbox.connectors import chaoxing
 from campus_inbox.database import initialize, make_engine
 from campus_inbox.extraction import extract_rules
 from campus_inbox.main import create_app
@@ -50,6 +51,7 @@ class FakeMinerU:
 
 @pytest.fixture
 async def context(tmp_path, monkeypatch):
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime(2026, 11, 1, 5, tzinfo=UTC))
     monkeypatch.setattr(attachments, "api_key", lambda: "test-token")
     FakeMinerU.calls, FakeMinerU.polls, FakeMinerU.fail = 0, 0, False
     app = create_app(tmp_path / "test.db", mineru_factory=FakeMinerU)

@@ -39,7 +39,6 @@ from campus_inbox.inference import InferenceSettings, ModelManager
 from campus_inbox.inference import router as inference_router
 from campus_inbox.mineru import MinerUProvider
 from campus_inbox.models import (
-    Message,
     ModelSettings,
     ReminderSettings,
     SplitDraft,
@@ -78,6 +77,8 @@ from campus_inbox.schemas import (
     TaskFields,
     TaskListItem,
     TaskRead,
+    TaskRecognitionPreview,
+    TaskRecognitionRequest,
     TaskUpdate,
 )
 from campus_inbox.task_assistant import router as task_assistant_router
@@ -162,9 +163,12 @@ def create_app(
 
     @application.get("/api/inbox", response_model=list[InboxItem], tags=["inbox"])
     def list_inbox(
-        session: DB,
+        session: WriteDB,
         status: Literal["pending", "accepted", "ignored", "archived", "all"] = "pending",
     ):
+        from campus_inbox.connectors.chaoxing import archive_expired
+
+        archive_expired(session)
         query = select(Suggestion)
         if status == "pending":
             query = query.where(Suggestion.status.in_(["pending", "processing"]))
@@ -314,17 +318,17 @@ def create_app(
         session: WriteDB,
     ):
         suggestion = services.get_or_404(session, Suggestion, suggestion_id)
-        if operation == "ignore" and splitting.drafts(session, suggestion_id):
-            raise HTTPException(409, "已生成拆分草稿，请逐项处理或跳过剩余草稿。")
-        if operation == "reopen" and splitting.drafts(session, suggestion_id):
-            raise HTTPException(409, "拆分通知请使用各条目中的恢复待审核操作。")
-        if operation == "restore-archive" and suggestion.status == "archived":
-            from campus_inbox.connectors.chaoxing import source_context
+        if operation == "reopen":
+            drafts = splitting.drafts(session, suggestion_id)
+            if drafts and not any(draft.status == "pending" for draft in drafts):
+                raise HTTPException(409, "拆分通知请使用各条目中的恢复待审核操作。")
+        if (operation, suggestion.status) in {
+            ("restore-archive", "archived"),
+            ("reopen", "ignored"),
+        }:
+            from campus_inbox.connectors.chaoxing import require_restorable
 
-            message = services.get_or_404(session, Message, suggestion.message_id)
-            context = source_context(session, message.dedupe_key)
-            if context and context["closed_task_status"]:
-                raise HTTPException(409, "平台记录显示该作业已提交或结束。请同步最新状态。")
+            require_restorable(session, suggestion)
         expected, target = {
             "ignore": ("pending", "ignored"),
             "reopen": ("ignored", "pending"),
@@ -356,6 +360,14 @@ def create_app(
     @application.get("/api/tasks/{task_id}", response_model=TaskDetail, tags=["tasks"])
     def task_detail(task_id: str, session: DB):
         return services.detail(session, services.get_or_404(session, Task, task_id))
+
+    @application.post(
+        "/api/tasks/{task_id}/recognize", response_model=TaskRecognitionPreview, tags=["tasks"]
+    )
+    def recognize_task(task_id: str, body: TaskRecognitionRequest, session: DB):
+        return services.recognize_task(
+            session, services.get_or_404(session, Task, task_id), body, manager.provider
+        )
 
     @application.get("/api/tasks/{task_id}/material-suggestions", tags=["tasks"])
     def suggest_materials(task_id: str, session: DB):
@@ -460,7 +472,7 @@ def create_app(
         status: calendar.CalendarScope = "active",
         course: Annotated[str, Query(max_length=100)] = "",
     ):
-        return calendar.feed(session, start, end, timezone, status, course)
+        return calendar.feed(session, start, end, timezone, status, course, reminder_clock())
 
     @application.get("/api/calendar/export.ics", tags=["calendar"])
     def calendar_export(
@@ -471,7 +483,7 @@ def create_app(
         status: calendar.CalendarScope = "active",
         course: Annotated[str, Query(max_length=100)] = "",
     ):
-        result = calendar.feed(session, start, end, timezone, status, course)
+        result = calendar.feed(session, start, end, timezone, status, course, reminder_clock())
         return Response(
             calendar.export(result),
             media_type="text/calendar",

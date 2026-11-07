@@ -4,12 +4,13 @@ import hashlib
 import hmac
 import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.connectors.onebot import (
     BridgeConfig,
     BridgeError,
@@ -140,7 +141,8 @@ def test_bridge_failures_are_safe_and_not_reported_connected(tmp_path, reply):
         bridge.call("get_login_info")
 
 
-async def test_signed_real_http_contract_into_original_inbox(tmp_path):
+async def test_signed_real_http_contract_into_original_inbox(tmp_path, monkeypatch):
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime.fromtimestamp(notice()["time"], UTC))
     bridge, _ = setup_bridge(tmp_path)
     app = create_app(tmp_path / "test.db", qq_adapter=bridge, qq_background=False)
     async with app.router.lifespan_context(app):

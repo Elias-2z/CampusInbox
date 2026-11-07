@@ -257,7 +257,8 @@ async def test_ambiguous_candidates_need_explicit_task_id_and_numbers_are_respec
     first = await task(client)
     second = await task(client, course="软件工程")
     item = await notice(client, "实验4报告延期到下周一晚上八点。")
-    assert {t["id"] for t in item["matched_tasks"]} == {first["id"], second["id"]}
+    # Missing course information must not recommend tasks across courses by title alone.
+    assert item["matched_tasks"] == []
     assert (
         await client.post(f"/api/suggestions/{item['id']}/deadline-preview", json={})
     ).status_code == 422
@@ -341,9 +342,9 @@ async def test_additive_schema_initialization_preserves_old_data_and_model_setti
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("本周三第一次实验课，不要迟到，记得穿工作服！", "2026-11-04"),
-        ("下周三第一次实验课，记得穿工作服。", "2026-11-11"),
-        ("明天上课，记得带实验服。", "2026-11-06"),
+        ("本周三第一次实验课，不要迟到，记得穿工作服！", None),
+        ("下周三第一次实验课，记得穿工作服。", None),
+        ("明天上课，记得带实验服。", None),
         ("11月6日考试，请带学生证。", "2026-11-06"),
         ("不是本周三上课，请等通知。", None),
         ("本周三天气不错，实验报告另行通知。", None),
@@ -361,11 +362,16 @@ def test_course_schedule_dates_use_message_time_without_inventing_clock(text, ex
     "text",
     ["本周三18:00第一次实验课，不要迟到。", "2026年11月4日18:00实验课，不要迟到。"],
 )
-def test_course_schedule_explicit_clock_is_preserved(text):
-    from campus_inbox.extraction import extract_rules
+def test_experimental_class_schedule_clock_is_not_a_deadline(text):
+    from campus_inbox.extraction import extract_rules, lab_schedule_quotes, merge_model
 
-    result = extract_rules(text, datetime(2026, 11, 5, 7, 8, tzinfo=UTC), "Asia/Shanghai")
-    assert result.fields["due_at"] == "2026-11-04T10:00:00+00:00"
+    sent_at = datetime(2026, 11, 5, 7, 8, tzinfo=UTC)
+    result = extract_rules(text, sent_at, "Asia/Shanghai")
+    assert result.fields["due_at"] is None
+    assert result.fields["due_date"] is None
+    assert lab_schedule_quotes(text) == [text.split("，")[0]]
+    merge_model(result, {"due_text": text.split("，")[0]}, text, sent_at, "Asia/Shanghai")
+    assert result.fields["due_at"] is None
     assert result.fields["due_date"] is None
 
 

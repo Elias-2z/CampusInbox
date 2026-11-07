@@ -46,6 +46,9 @@ def preview(
     if not cancellation_supported(message.text):
         raise HTTPException(422, "未识别到明确的单任务取消，不能按取消任务处理。")
     task = require(session, Task, body.task_id)
+    from campus_inbox.merging import require_same_course
+
+    require_same_course(session, message, suggestion.fields, task)
     if task.status not in {"todo", "in_progress", "done"}:
         raise HTTPException(409, "只能取消尚未提交的任务，请先核对任务状态。")
     proposal = CancellationProposal(
@@ -76,6 +79,11 @@ def confirm(session: Session, proposal_id: str) -> CancellationChangeRead:
         return change_read(session, existing)
     suggestion = require(session, Suggestion, proposal.suggestion_id)
     task = require(session, Task, proposal.task_id)
+    from campus_inbox.merging import require_same_course
+
+    require_same_course(
+        session, require(session, Message, suggestion.message_id), suggestion.fields, task
+    )
     if suggestion.status != "pending" or suggestion.updated_at != proposal.suggestion_updated_at:
         raise HTTPException(409, "通知已重新识别或处理，请重新预览后确认。")
     if (

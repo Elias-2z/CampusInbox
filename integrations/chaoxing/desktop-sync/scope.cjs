@@ -1,6 +1,6 @@
 'use strict';
 const {parseTime}=require('../browser-companion/parser.js');
-const NOTICE_DAYS=30;
+const NOTICE_DAYS=90;
 function withinNoticeWindow(timestamp,now=Date.now()) {
   const stamp=typeof timestamp==='string'?Date.parse(timestamp):NaN;
   // Unknown dates need explicit review, never reinterpret scan time as publication.

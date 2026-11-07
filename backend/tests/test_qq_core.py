@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 from sqlmodel import Session, select
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.connectors.qq import AdapterState, Batch, Group, Incoming, Member, QQEvent
 from campus_inbox.main import create_app
 from campus_inbox.models import Message
@@ -60,7 +61,9 @@ def event(**changes):
 
 
 @pytest.fixture
-async def context(tmp_path):
+async def context(tmp_path, monkeypatch):
+    # Keep the example QQ notices inside their active deadline window.
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime(2026, 11, 2, tzinfo=UTC))
     adapter = Adapter()
     app = create_app(tmp_path / "db.sqlite3", qq_adapter=adapter, qq_background=False)
     async with app.router.lifespan_context(app):

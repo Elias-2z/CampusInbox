@@ -9,6 +9,7 @@ import { createServer } from 'vite'
 
 let vite
 let TodayView
+let RemindersView
 let useCampus
 const now = Date.parse('2026-11-01T00:00:00Z')
 
@@ -21,6 +22,7 @@ before(async () => {
     appType: 'custom',
   })
   ;({ default: TodayView } = await vite.ssrLoadModule('/src/views/TodayView.vue'))
+  ;({ default: RemindersView } = await vite.ssrLoadModule('/src/views/RemindersView.vue'))
   ;({ useCampus } = await vite.ssrLoadModule('/src/stores/campus.ts'))
 })
 after(async () => {
@@ -60,7 +62,7 @@ function reminder(id, due_at, phase = 'upcoming', status = 'unread') {
     version: 0,
   }
 }
-async function render(tasks, reminders = []) {
+async function render(tasks, reminders = [], component = TodayView) {
   const pinia = createPinia()
   const store = useCampus(pinia)
   store.tasks = tasks
@@ -71,7 +73,7 @@ async function render(tasks, reminders = []) {
     items: reminders,
     evaluated_at: '2026-11-01T00:00:00Z',
   }
-  const app = createSSRApp(TodayView)
+  const app = createSSRApp(component)
   app.use(pinia)
   app.component('RouterLink', {
     props: ['to'],
@@ -136,6 +138,22 @@ test('home reminder overview omits overdue and expired upcoming reminders', asyn
   assert.match(html, /1 条提醒，别错过/)
   assert.match(html, /upcoming/)
   assert.doesNotMatch(html, /expired|due-now-reminder|already-read/)
+})
+
+test('reminders page and unread count hide expired reminders', async () => {
+  const html = await render(
+    [],
+    [
+      reminder('expired-clock', '2026-10-31T23:00:00Z', 'overdue'),
+      reminder('expired-cached', '2026-11-01T00:00:00Z'),
+      { ...reminder('expired-date', null), due_date: '2026-10-31' },
+      { ...reminder('today-date', null), due_date: '2026-11-01' },
+    ],
+    RemindersView,
+  )
+  assert.match(html, /未读\s*<span> · 1<\/span>/)
+  assert.match(html, /today-date/)
+  assert.doesNotMatch(html, /expired-clock|expired-cached|expired-date/)
 })
 
 test('date-only tasks and legacy done records stay actionable with simple completion controls', async () => {

@@ -88,7 +88,7 @@ def test_collected_docx_is_processed_locally_after_message_is_saved(runtime):
         item = session.exec(select(Attachment)).one()
         assert item.status == "ready" and item.text == "请上传源代码"
         assert item.message_id is not None
-        assert "对照原文件" in item.error
+        assert item.error == ""
         filename = f"{item.id}.docx"
     assert (Path(runtime.engine.url.database).parent / "uploads" / filename).read_bytes() == content
     runtime.process_pending()

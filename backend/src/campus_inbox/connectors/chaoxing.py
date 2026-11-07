@@ -13,17 +13,24 @@ from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, update
 from sqlmodel import Field, Session, SQLModel, select
 
 from campus_inbox import services
 from campus_inbox.attachments import local_text, original_path, persist_original
 from campus_inbox.connectors import platform_status
-from campus_inbox.extraction import CHANGE_WORDS, DEADLINE_CHANGE
+from campus_inbox.extraction import (
+    CHANGE_WORDS,
+    DEADLINE_CHANGE,
+    Extraction,
+    class_schedule_evidence,
+    extract_rules,
+)
 from campus_inbox.models import (
     Attachment,
     LocalAttachmentExtraction,
     Message,
+    SplitDraft,
     Suggestion,
     Task,
     now,
@@ -69,22 +76,22 @@ def public_notice_original(item):
 
 
 def reminder_only(job):
+    text = job.get("text")
     if (
         job.get("kind") not in ("chat", "course_notice")
         or job.get("attachments")
         or job.get("media_pending_count")
+        or not isinstance(text, str)
+        or not 2 <= len(text.strip()) <= 20000
     ):
         return False
-    lines = [line.strip() for line in job["text"].splitlines() if line.strip()]
-    if (
-        not lines
-        or not REMINDER_TITLE.fullmatch(lines[0])
-        or CHANGE_WORDS.search(job["text"])
-        or DEADLINE_CHANGE.search(job["text"])
-    ):
+    if CHANGE_WORDS.search(text) or DEADLINE_CHANGE.search(text):
         return False
+    lines = [line.strip() for line in text.replace("\u200b", "").splitlines() if line.strip()]
+    if lines and REMINDER_TITLE.fullmatch(lines[0]):
+        lines = lines[1:]
     course = task = countdown = False
-    for line in lines[1:]:
+    for line in lines:
         if re.fullmatch(r"课程名称\s*[：:]\s*[^\s。；;，,！!]+", line):
             course = True
         elif re.fullmatch(r"(?:作业|任务|考试|测验)名称\s*[：:]\s*[^\s。；;，,！!]+", line):
@@ -504,21 +511,30 @@ def historical_deadline(job, current):
                 date.fromisoformat(deadline) < current.astimezone(ZoneInfo("Asia/Shanghai")).date()
             )
         value = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
-        return value.tzinfo is not None and value.utcoffset() is not None and value < current
+        return value.tzinfo is not None and value.utcoffset() is not None and value <= current
     except (ValueError, OverflowError):
         return False
 
 
-def historical_notice(job, suggestion, current):
-    if job.get("kind") != "course_notice":
-        return False
+def historical_notice(job, suggestion, current, timezone="Asia/Shanghai"):
     for field in ("due_at", "due_date"):
         evidence = suggestion.evidence.get(field, {})
         quote = evidence.get("quote", "")
-        if evidence.get("method") != "rule" or not re.search(
-            r"(?<!\d)20\d{2}\s*(?:年|[-/])", quote
-        ):
+        if not quote or evidence.get("method") not in {
+            "rule",
+            "connector",
+            "attachment",
+            "llm+date",
+        }:
             continue
+        if field == "due_date" and suggestion.fields.get(field):
+            try:
+                return (
+                    date.fromisoformat(suggestion.fields[field])
+                    < current.astimezone(ZoneInfo(timezone)).date()
+                )
+            except (ValueError, KeyError, TypeError):
+                return False
         return historical_deadline(
             {
                 "kind": "task_center",
@@ -528,6 +544,189 @@ def historical_notice(job, suggestion, current):
             current,
         )
     return False
+
+
+def expired_task_notice(job, result, current, timezone="Asia/Shanghai"):
+    if result.action != "create" or len(services.normalized(result.fields.get("title") or "")) < 2:
+        return False
+    if any(
+        "多个可能的截止时间" in w or "不一致" in w or "任务名称与正文提取结果不同" in w
+        for w in result.warnings
+    ):
+        return False
+    return historical_deadline(job, current) or historical_notice(job, result, current, timezone)
+
+
+EXPIRED_NOTICE = "截止日期已过，已放入历史归档，原文仍可查看。"
+ENDED_CHECKIN = "该场签到已结束，已保留平台活动记录。"
+CLOSED_WORK = "学习通显示该作业已提交或结束，已放入历史归档。"
+REMINDER_ARCHIVED = "平台倒计时提醒已归档，可在历史归档查看原文。"
+
+
+def archive_reason(session, suggestion, message, current, event=None):
+    payload = event.payload if event else {}
+    if reminder_only(payload):
+        return REMINDER_ARCHIVED
+    if payload.get("kind") == "checkin_activity" and closed_checkin_suggestions(
+        session, [event.suggestion_id], current
+    ):
+        return ENDED_CHECKIN
+    if payload.get("kind") == "task_center":
+        key = platform_status.identity(event.account_id, payload)
+        observation = session.get(platform_status.PlatformObservation, key) if key else None
+        if closed_task_status(payload) or (
+            observation and closed_task_status({**payload, "platform_status": observation.status})
+        ):
+            return CLOSED_WORK
+    if expired_task_notice(
+        payload, suggestion, current, message.timezone if message else "Asia/Shanghai"
+    ):
+        return EXPIRED_NOTICE
+    return None
+
+
+def require_restorable(session, suggestion):
+    if (
+        session.exec(
+            select(SplitDraft.id).where(
+                SplitDraft.suggestion_id == suggestion.id, SplitDraft.status == "archived"
+            )
+        ).first()
+        and suggestion.status == "archived"
+    ):
+        raise HTTPException(409, EXPIRED_NOTICE)
+    event = session.exec(
+        select(ChaoxingEvent).where(ChaoxingEvent.suggestion_id == suggestion.id)
+    ).first()
+    message = session.get(Message, suggestion.message_id)
+    if reason := archive_reason(session, suggestion, message, now(), event):
+        raise HTTPException(409, reason)
+
+
+def correct_class_deadline(message, suggestion):
+    fields = dict(suggestion.fields)
+    evidence = dict(suggestion.evidence)
+    for key in ("due_at", "due_date"):
+        origin = evidence.get(key, {})
+        if fields.get(key) and origin.get("method") in {"rule", "llm+date"}:
+            if class_schedule_evidence(message.text, origin.get("quote", "")):
+                fields[key] = None
+                evidence.pop(key)
+    if fields != suggestion.fields:
+        warnings = [
+            warning
+            for warning in suggestion.warnings
+            if warning
+            not in {
+                "截止时间早于消息发送时间，请核对是否已经逾期。",
+                "原文未明确具体时刻，已保留日期，请核对。",
+            }
+        ]
+        warnings.append("原文中的上课时间已从截止字段移除，请核对安排。")
+        return {"fields": fields, "evidence": evidence, "warnings": list(dict.fromkeys(warnings))}
+    return {}
+
+
+def archive_expired(session, current=None, *, suggestion_id=None, commit=True):
+    from campus_inbox import splitting
+
+    current = current or now()
+    count = 0
+    modified = 0
+    query = (
+        select(Suggestion, ChaoxingEvent)
+        .outerjoin(ChaoxingEvent, ChaoxingEvent.suggestion_id == Suggestion.id)
+        .where(Suggestion.status == "pending")
+    )
+    if suggestion_id is not None:
+        query = query.where(Suggestion.id == suggestion_id)
+    for suggestion, event in session.exec(query).all():
+        message = session.get(Message, suggestion.message_id)
+        if items := splitting.drafts(session, suggestion.id):
+            expired_items = [
+                draft
+                for draft in items
+                if draft.status == "pending" and splitting.expired(draft, message, current)
+            ]
+            for draft in expired_items:
+                draft.status, draft.updated_at = "archived", current
+                draft.warnings = list(dict.fromkeys([*draft.warnings, EXPIRED_NOTICE]))
+                session.add(draft)
+            if expired_items:
+                splitting.settle(session, suggestion)
+                modified += 1
+                count += suggestion.status == "archived"
+            continue
+        payload = event.payload if event else {}
+        values = correct_class_deadline(message, suggestion) if message else {}
+        candidate = Extraction(**values, action=suggestion.action) if values else suggestion
+        if not values and (
+            suggestion.action == "create"
+            and payload.get("kind") in {"course_notice", "task_center"}
+            and not suggestion.fields.get("due_at")
+            and not suggestion.fields.get("due_date")
+            and not any("不一致" in w or "多个可能" in w for w in suggestion.warnings)
+            and not any(
+                suggestion.evidence.get(k, {}).get("method") == "user"
+                for k in ("due_at", "due_date")
+            )
+        ):
+            if message and not message.dedupe_key.startswith("unknown-time:"):
+                parsed = extract_rules(
+                    message.text, message.sent_at, message.timezone, scoped_deadline=True
+                )
+                if parsed.action == "create" and (
+                    parsed.fields.get("due_at") or parsed.fields.get("due_date")
+                ):
+                    fields = {
+                        **suggestion.fields,
+                        **{k: parsed.fields[k] for k in ("due_at", "due_date")},
+                    }
+                    evidence = {
+                        **suggestion.evidence,
+                        **{k: v for k, v in parsed.evidence.items() if k in ("due_at", "due_date")},
+                    }
+                    stale = {
+                        "发现日期和时刻，但无法确认是截止时间，请手动核对。",
+                        "未找到明确截止时间，已留空，请补充。",
+                        "通知未明确具体截止时刻，已留空，请补充。",
+                    }
+                    if not parsed.needs_llm:
+                        stale.add("模型兜底未启用或未选择模型，可直接手动完善。")
+                    warnings = list(
+                        dict.fromkeys(
+                            [w for w in suggestion.warnings if w not in stale] + parsed.warnings
+                        )
+                    )
+                    candidate = Extraction(
+                        fields=fields,
+                        evidence=evidence,
+                        warnings=warnings,
+                        action=suggestion.action,
+                    )
+                    values = {"fields": fields, "evidence": evidence, "warnings": warnings}
+        reason = archive_reason(session, candidate, message, current, event)
+        if reason:
+            values.update(
+                status="archived",
+                warnings=list(dict.fromkeys([*candidate.warnings, reason])),
+            )
+        if not values:
+            continue
+        changed = session.execute(
+            update(Suggestion)
+            .where(
+                Suggestion.id == suggestion.id,
+                Suggestion.status == "pending",
+                Suggestion.updated_at == suggestion.updated_at,
+            )
+            .values(**values, updated_at=current)
+        ).rowcount
+        modified += changed
+        count += changed if reason else 0
+    if modified and commit:
+        session.commit()
+    return count
 
 
 def apply_platform_deadline(result, context):
@@ -564,7 +763,13 @@ def apply_platform_deadline(result, context):
         result.evidence.pop("due_date", None)
         result.warnings.append("多个可能的截止时间：学习通与通知正文不一致，请手动核对。")
         return
-    if existing_date or existing_time or any("多个可能的截止时间" in w for w in result.warnings):
+    if any("多个可能的截止时间" in w for w in result.warnings):
+        return
+    if existing_date and platform_time:
+        result.fields["due_date"] = None
+        result.evidence.pop("due_date", None)
+        existing_date = None
+    if existing_date or existing_time:
         return
     key = "due_at" if platform_time else "due_date"
     result.fields[key] = platform_time.isoformat() if platform_time else platform_date.isoformat()
@@ -573,7 +778,11 @@ def apply_platform_deadline(result, context):
         w
         for w in result.warnings
         if w
-        not in {"通知未明确具体截止时刻，已留空，请补充。", "未找到明确截止时间，已留空，请补充。"}
+        not in {
+            "通知未明确具体截止时刻，已留空，请补充。",
+            "未找到明确截止时间，已留空，请补充。",
+            "原文未明确具体时刻，已保留日期，请核对。",
+        }
     ]
     if not platform_time:
         result.warnings.append("学习通仅提供截止日期，请核对具体时刻。")
@@ -669,17 +878,10 @@ class ChaoxingIntake:
         if not identity:
             return None
         content = task_content_identity(account_id, job)
-        origins = session.exec(
-            select(ChaoxingEvent)
-            .join(Task, Task.suggestion_id == ChaoxingEvent.suggestion_id)
-            .where(
-                ChaoxingEvent.account_id == account_id,
-                ChaoxingEvent.payload["kind"].as_string() == "task_center",
-            )
-        )
-        for origin in origins:
+        for _, origin in platform_status.linked_task_sources(session):
             if (
-                platform_status.identity(account_id, origin.payload) == identity
+                origin.account_id == account_id
+                and platform_status.identity(account_id, origin.payload) == identity
                 and task_content_identity(account_id, origin.payload) == content
                 and not any(fill_originals(origin.payload, job)[1:])
             ):
@@ -794,6 +996,33 @@ class ChaoxingIntake:
                 return row.state
             job = row.payload
             stamp = sent_at or actual_sent_time(job)
+            is_reminder = reminder_only(job)
+            archive_reminder = (
+                is_reminder
+                and not session.exec(
+                    select(Message.id).where(Message.dedupe_key == "chaoxing:" + row.identity)
+                ).first()
+            )
+            early = None
+            if stamp is not None and isinstance(job.get("text"), str):
+                parsed = extract_rules(job["text"], stamp, "Asia/Shanghai", scoped_deadline=True)
+                context = source_context(session, "chaoxing:" + row.identity)
+                if context:
+                    apply_platform_task(parsed, context)
+                    apply_platform_deadline(parsed, context)
+                    if context.get("course"):
+                        parsed.fields["course"] = context["course"]
+                        parsed.evidence["course"] = {
+                            "method": "connector",
+                            "quote": context["course"],
+                        }
+                if (
+                    expired_task_notice(job, parsed, now())
+                    and not session.exec(
+                        select(Message.id).where(Message.dedupe_key == "chaoxing:" + row.identity)
+                    ).first()
+                ):
+                    early = parsed
             closed = closed_task_status(job)
             archive_closed = (
                 closed
@@ -855,10 +1084,44 @@ class ChaoxingIntake:
                 row.state = "needs_review"
             elif stamp is None:
                 row.state = "needs_time"
-            elif archive_closed or verified_empty_notice(job) or attachment_only_notice(job):
-                archive = archive_closed or verified_empty_notice(job)
+            elif early is not None:
+                message = Message(
+                    text=job["text"],
+                    source="学习通作业考试" if job["kind"] == "task_center" else "学习通课程通知",
+                    sent_at=stamp.astimezone(UTC),
+                    dedupe_key="chaoxing:" + row.identity,
+                )
+                session.add(message)
+                session.flush()
+                suggestion = Suggestion(
+                    message_id=message.id,
+                    status="archived",
+                    action=early.action,
+                    fields=early.fields,
+                    evidence=early.evidence,
+                    warnings=[*early.warnings, EXPIRED_NOTICE],
+                )
+                session.add(suggestion)
+                session.flush()
+                try:
+                    self._save_originals(session, row, message.id)
+                    row.suggestion_id, row.state = suggestion.id, "done"
+                except (ValueError, OSError):
+                    session.rollback()
+                    session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+                    row = session.get(ChaoxingEvent, event_id)
+                    row.state = "failed"
+            elif (
+                archive_reminder
+                or archive_closed
+                or verified_empty_notice(job)
+                or attachment_only_notice(job)
+            ):
+                archive = archive_reminder or archive_closed or verified_empty_notice(job)
                 warning = "此通知只有附件。请核对原件，或在提取文字后重新识别。"
-                if archive_closed:
+                if archive_reminder:
+                    warning = REMINDER_ARCHIVED
+                elif archive_closed:
                     status = str(job["platform_status"]).strip()[:100]
                     warning = f"平台状态为「{status}」，已归档原通知。"
                 elif archive:
@@ -875,7 +1138,7 @@ class ChaoxingIntake:
                     message_id=message.id,
                     status="archived" if archive else "pending",
                     action="ignore",
-                    fields={"title": job["title"].strip()} if archive else {},
+                    fields={"title": str(job.get("title") or "").strip()[:160]} if archive else {},
                     warnings=[warning],
                 )
                 session.add(suggestion)
@@ -917,30 +1180,20 @@ class ChaoxingIntake:
                     session.commit()
                     session.connection().exec_driver_sql("BEGIN IMMEDIATE")
                     session.refresh(suggestion)
-                    if suggestion.status == "pending" and reminder_only(job):
+                    if suggestion.status == "pending" and is_reminder:
                         suggestion.status = "archived"
                         suggestion.warnings = [
                             *suggestion.warnings,
-                            "平台倒计时提醒已归档，可在历史归档查看原文。",
+                            REMINDER_ARCHIVED,
                         ]
                         session.add(suggestion)
-                    elif (
-                        suggestion.status == "pending"
-                        and suggestion.action == "create"
-                        and not CHANGE_WORDS.search(job["text"])
-                        and not any("多个可能的截止时间" in w for w in suggestion.warnings)
-                        and not any("任务名称与正文提取结果不同" in w for w in suggestion.warnings)
-                        and len(services.normalized(suggestion.fields.get("title") or "")) >= 2
-                        and (
-                            historical_deadline(job, now())
-                            or historical_notice(job, suggestion, now())
-                        )
-                        and not services.matching_tasks(session, suggestion.fields)
+                    elif suggestion.status == "pending" and expired_task_notice(
+                        job, suggestion, now()
                     ):
                         suggestion.status = "archived"
                         suggestion.warnings = [
                             *suggestion.warnings,
-                            "学习通截止日期已过，已放入历史归档；可核对后恢复。",
+                            EXPIRED_NOTICE,
                         ]
                         session.add(suggestion)
                     row = session.get(ChaoxingEvent, event_id)

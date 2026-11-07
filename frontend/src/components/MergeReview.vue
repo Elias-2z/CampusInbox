@@ -14,6 +14,7 @@ import {
   type TaskInput,
 } from '@/api'
 import { useCampus } from '@/stores/campus'
+import { canAssociate } from '@/taskMatching'
 const props = defineProps<{
   source: {
     id: string
@@ -31,11 +32,14 @@ const selected = ref<string[]>([])
 const preview = ref<MergePreview | null>(null)
 const previewing = ref(false)
 const error = ref('')
+const sameCourse = (task: Task) => canAssociate(props.source.fields, task)
 const active = computed(() =>
-  store.tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+  store.tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status) && sameCourse(t)),
 )
 const candidates = computed(() =>
-  props.source.matched_tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+  props.source.matched_tasks.filter(
+    (t) => ['todo', 'in_progress', 'done'].includes(t.status) && sameCourse(t),
+  ),
 )
 const others = computed(() =>
   active.value.filter((t) => !candidates.value.some((c) => c.id === t.id)),
@@ -151,7 +155,7 @@ async function refreshContext() {
       这里使用已保存的草稿字段；刚修改过内容时，请先返回保存草稿。
     </p>
     <p v-if="!active.length" class="ci-change">
-      暂无待办或进行中的任务可关联，可以返回创建独立任务。
+      暂无课程、类型和任务序号相符的任务可关联，可以返回创建独立任务。
     </p>
     <form v-else @submit.prevent="createPreview">
       <label class="ci-field"

@@ -112,7 +112,7 @@ async function save() {
           ><small class="ci-evidence">按每项任务最新的截止时间计算。</small></label
         >
         <label class="ci-checklabel"
-          ><input v-model="config.overdue_enabled" type="checkbox" />显示逾期提醒</label
+          ><input v-model="config.overdue_enabled" type="checkbox" />允许发送逾期通知</label
         >
       </div>
       <button class="ci-btn ci-primary cursor-interaction">

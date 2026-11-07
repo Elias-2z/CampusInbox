@@ -76,6 +76,9 @@ def preview(session: Session, suggestion_id: str, body: DeadlinePreviewRequest) 
     if not deadline_supported(message.text):
         raise HTTPException(422, "这条通知涉及取消、其他变更或多个任务，不能按截止时间变更处理。")
     task = require(session, Task, body.task_id)
+    from campus_inbox.merging import require_same_course
+
+    require_same_course(session, message, suggestion.fields, task)
     if task.status not in {"todo", "in_progress", "done"}:
         raise HTTPException(409, "只能更新尚未提交的任务，请先核对任务状态。")
     context = legacy_context(session, message.id)
@@ -167,6 +170,11 @@ def confirm(session: Session, proposal_id: str) -> DeadlineChangeRead:
         return change_read(session, existing)
     suggestion = require(session, Suggestion, proposal.suggestion_id)
     task = require(session, Task, proposal.task_id)
+    from campus_inbox.merging import require_same_course
+
+    require_same_course(
+        session, require(session, Message, suggestion.message_id), suggestion.fields, task
+    )
     if suggestion.status != "pending" or suggestion.updated_at != proposal.suggestion_updated_at:
         raise HTTPException(409, "通知已重新识别或处理，请重新预览后确认。")
     if task.status not in {"todo", "in_progress", "done"}:

@@ -41,6 +41,8 @@ def main() -> int:
                 "uv",
                 "run",
                 "--locked",
+                "python",
+                "-m",
                 "uvicorn",
                 "campus_inbox.main:app",
                 *([] if args.no_reload else ["--reload"]),

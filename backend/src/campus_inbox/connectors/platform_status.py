@@ -7,10 +7,10 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qsl, urlsplit
 from uuid import uuid4
 
-from sqlalchemy import func, literal
+from sqlalchemy import literal
 from sqlmodel import Field, Session, SQLModel, select
 
-from campus_inbox.models import Message, Task, now
+from campus_inbox.models import MergeChange, Message, Suggestion, Task, now
 
 
 class PlatformObservation(SQLModel, table=True):
@@ -147,39 +147,60 @@ def observe(session, account, job):
     session.add(row)
 
 
-def for_task(session: Session, task: Task):
+def linked_task_sources(session: Session):
+    """Exact platform origins, including active explicit source associations."""
     from campus_inbox.connectors.chaoxing import ChaoxingEvent
 
-    message = session.get(Message, task.message_id)
-    if not message or not message.dedupe_key.startswith("chaoxing:"):
+    event_link = Message.dedupe_key == literal("chaoxing:") + ChaoxingEvent.identity
+    primary = session.exec(
+        select(Task.id, ChaoxingEvent)
+        .join(Message, Task.message_id == Message.id)
+        .join(ChaoxingEvent, event_link)
+    ).all()
+    merged = session.exec(
+        select(MergeChange.task_id, ChaoxingEvent)
+        .join(Task, Task.id == MergeChange.task_id)
+        .join(Suggestion, Suggestion.id == MergeChange.suggestion_id)
+        .join(Message, Message.id == Suggestion.message_id)
+        .join(ChaoxingEvent, event_link)
+        .where(MergeChange.undo_event_id.is_(None))
+    ).all()
+    return [*primary, *merged]
+
+
+def for_task(session: Session, task: Task):
+    owners: dict[str, set[str]] = {}
+    keys = set()
+    for task_id, event in linked_task_sources(session):
+        key = identity(event.account_id, event.payload)
+        if key:
+            owners.setdefault(key, set()).add(task_id)
+            if task_id == task.id:
+                keys.add(key)
+    if len(keys) != 1:
         return None
-    tasks = session.exec(select(Task.id).where(Task.message_id == task.message_id)).all()
-    if len(tasks) != 1:
-        return None
+    key = next(iter(keys))
+    return session.get(PlatformObservation, key) if owners[key] == {task.id} else None
+
+
+def message_identity(session: Session, message: Message) -> str:
+    from campus_inbox.connectors.chaoxing import ChaoxingEvent
+
+    if not message.dedupe_key.startswith("chaoxing:"):
+        return ""
     event = session.exec(
         select(ChaoxingEvent).where(ChaoxingEvent.identity == message.dedupe_key[9:])
     ).first()
-    key = identity(event.account_id, event.payload) if event else ""
-    if key:
-        related = session.exec(
-            select(
-                Task.id,
-                ChaoxingEvent.account_id,
-                func.json_extract(ChaoxingEvent.payload, "$.kind"),
-                func.json_extract(ChaoxingEvent.payload, "$.url"),
-            )
-            .join(Message, Task.message_id == Message.id)
-            .join(
-                ChaoxingEvent, Message.dedupe_key == literal("chaoxing:") + ChaoxingEvent.identity
-            )
-            .where(Task.id != task.id)
-        )
-        if any(
-            identity(account, {"kind": kind, "url": url}) == key
-            for _, account, kind, url in related
-        ):
-            return None
-    return session.get(PlatformObservation, key) if key else None
+    return identity(event.account_id, event.payload) if event else ""
+
+
+def task_identities(session: Session) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    for task_id, event in linked_task_sources(session):
+        key = identity(event.account_id, event.payload)
+        if key:
+            result.setdefault(task_id, set()).add(key)
+    return result
 
 
 def public(row, task_status=None):

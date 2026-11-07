@@ -55,12 +55,19 @@ def resolve_day(match, anchor) -> date:
             return date(year, m, day)
         raise ValueError("unsupported calendar expression")
     if match["iso"]:
-        return date(*map(int, re.split(r"[-/]", match["iso"])))
-    result = date(
-        int(match["year"] or anchor.year),
-        chinese_number(match["month"]),
-        chinese_number(match["day"]),
-    )
-    if not match["year"] and result < anchor.date():
+        result = date(*map(int, re.split(r"[-/.]", match["iso"])))
+    elif match["short"]:
+        result = date(anchor.year, *map(int, re.split(r"[-/]", match["short"])))
+    else:
+        result = date(
+            int(match["year"] or anchor.year),
+            chinese_number(match["month"]),
+            chinese_number(match["day"]),
+        )
+    if not (match["iso"] or match["year"]) and result < anchor.date():
         raise ValueError("missing year precedes message date")
+    if match["weekday"] and "一二三四五六日"[result.weekday()] != match["weekday"].replace(
+        "天", "日"
+    ):
+        raise ValueError("weekday conflicts with date")
     return result

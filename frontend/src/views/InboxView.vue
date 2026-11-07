@@ -19,12 +19,14 @@ import DeadlineReview from '@/components/DeadlineReview.vue'
 import CancellationReview from '@/components/CancellationReview.vue'
 import SplitReview from '@/components/SplitReview.vue'
 import MergeReview from '@/components/MergeReview.vue'
+import { refreshInboxDraft } from '@/inboxDraft'
 const store = useCampus()
 const route = useRoute()
 const router = useRouter()
 const tab = ref('pending')
 const selectedId = ref('')
 const drafts = reactive<Record<string, TaskInput>>({})
+const draftBases = reactive<Record<string, TaskInput>>({})
 const duplicateAllowed = ref(false)
 const mergeMode = ref(false)
 const tabs = [
@@ -45,6 +47,16 @@ const items = computed(() =>
 const selected = computed(
   () => items.value.find((i) => i.id === selectedId.value) || items.value[0],
 )
+const showSplitReview = computed(() => {
+  const item = selected.value
+  return (
+    item &&
+    (item.split_supported || item.split_items.length) &&
+    (item.status !== 'ignored' ||
+      (item.split_items.length > 0 &&
+        item.split_items.every((draft) => ['ignored', 'archived'].includes(draft.status))))
+  )
+})
 const isCheckin = computed(() => {
   const context = selected.value?.message.source_context
   return context?.platform === 'chaoxing' && context.kind === 'checkin_activity'
@@ -91,6 +103,20 @@ watch(
       (!drafts[String(id)] || (status === 'pending' && previous?.[1] === 'processing'))
     )
       drafts[String(id)] = draftOf(selected.value.fields)
+  },
+  { immediate: true },
+)
+watch(
+  [() => selected.value?.id, () => selected.value?.updated_at],
+  () => {
+    const item = selected.value
+    if (!item) return
+    const incoming = draftOf(item.fields)
+    const current = drafts[item.id]
+    const previous = draftBases[item.id]
+    drafts[item.id] =
+      current && previous ? refreshInboxDraft(current, previous, incoming) : current || incoming
+    draftBases[item.id] = incoming
   },
   { immediate: true },
 )
@@ -367,11 +393,7 @@ function processedDescription(item: InboxItem) {
             刷新结果
           </button></template
         >
-        <SplitReview
-          v-else-if="selected.split_supported || selected.split_items.length"
-          :key="selected.id"
-          :item="selected"
-        />
+        <SplitReview v-else-if="showSplitReview" :key="selected.id" :item="selected" />
         <template v-else-if="selected.status === 'accepted'"
           ><h3>✅ {{ processedLabel(selected) }}</h3>
           <p class="ci-notice ci-before">{{ processedDescription(selected) }}</p>
@@ -414,8 +436,13 @@ function processedDescription(item: InboxItem) {
           </ul>
           <button
             v-if="
-              selected.message.source_context?.platform !== 'chaoxing' ||
-              !selected.message.source_context.closed_task_status
+              !selected.warnings.some((warning) =>
+                /^(?:(?:学习通)?截止日期已过|该场签到已结束|学习通显示该作业已提交或结束|平台倒计时提醒已归档)/.test(
+                  warning,
+                ),
+              ) &&
+              (selected.message.source_context?.platform !== 'chaoxing' ||
+                !selected.message.source_context.closed_task_status)
             "
             class="ci-btn cursor-interaction"
             :disabled="store.busy"
@@ -506,41 +533,19 @@ function processedDescription(item: InboxItem) {
                   class="ci-btn ci-primary cursor-interaction"
                   :disabled="store.busy || (!!selected.matched_tasks.length && !duplicateAllowed)"
                 >
-                  {{ store.busy ? '正在保存…' : '确认创建任务 ✓' }}</button
-                ><button
-                  type="button"
-                  class="ci-btn ci-text cursor-interaction"
-                  :disabled="store.busy"
-                  @click="store.ignore(selected)"
-                >
-                  忽略这条
+                  {{ store.busy ? '正在保存…' : '确认创建任务 ✓' }}
                 </button>
               </div>
             </form>
           </template>
-          <div
+          <RouterLink
             v-else-if="!selected.deadline_supported && !selected.cancellation_supported"
-            class="ci-actions"
+            class="ci-btn ci-text cursor-interaction"
+            to="/tasks"
           >
-            <button
-              class="ci-btn cursor-interaction"
-              :disabled="store.busy"
-              @click="store.ignore(selected)"
-            >
-              忽略这条建议</button
-            ><RouterLink class="ci-btn ci-text cursor-interaction" to="/tasks">
-              前往我的任务
-            </RouterLink>
-          </div>
+            前往我的任务
+          </RouterLink>
           <div class="ci-actions ci-review-footer">
-            <button
-              v-if="selected.deadline_supported || selected.cancellation_supported"
-              class="ci-btn ci-text cursor-interaction"
-              :disabled="store.busy"
-              @click="store.ignore(selected)"
-            >
-              忽略这条建议
-            </button>
             <button
               v-if="!isCheckin"
               class="ci-btn ci-text ci-retry cursor-interaction"
@@ -551,6 +556,16 @@ function processedDescription(item: InboxItem) {
             </button>
           </div>
         </template>
+        <div v-if="selected.status === 'pending'" class="ci-actions ci-review-footer">
+          <button
+            type="button"
+            class="ci-btn ci-text cursor-interaction"
+            :disabled="store.busy"
+            @click="store.ignore(selected)"
+          >
+            忽略这条建议
+          </button>
+        </div>
       </section>
     </div>
   </div>

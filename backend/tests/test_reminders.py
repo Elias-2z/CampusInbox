@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.main import create_app
 from campus_inbox.schemas import TaskFields
 
@@ -30,8 +31,9 @@ def anyio_backend():
 
 
 @pytest.fixture
-async def context(tmp_path):
+async def context(tmp_path, monkeypatch):
     clock = Clock()
+    monkeypatch.setattr(chaoxing, "now", clock)
     app = create_app(tmp_path / "reminders.db", reminder_clock=clock)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(

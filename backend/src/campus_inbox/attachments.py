@@ -45,10 +45,30 @@ def extract_local_docx(path: Path) -> tuple[str, str]:
             ):
                 raise ValueError("invalid document")
             xml = archive.read(documents[0]).decode("utf-8-sig")
+            has_extra_content = any(
+                entry.filename.startswith(
+                    (
+                        "word/media/",
+                        "word/embeddings/",
+                        "word/charts/",
+                        "word/diagrams/",
+                        "word/header",
+                        "word/footer",
+                        "word/footnotes",
+                        "word/endnotes",
+                    )
+                )
+                for entry in entries
+            )
         if "\x00" in xml or "<!DOCTYPE" in xml.upper() or "<!ENTITY" in xml.upper():
             raise ValueError("unsafe document")
         root = ElementTree.fromstring(xml)
         ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        has_extra_content = has_extra_content or any(
+            element.tag
+            in {ns + tag for tag in ("drawing", "pict", "object", "altChunk", "instrText", "del")}
+            for element in root.iter()
+        )
         paragraphs = []
         for paragraph in root.iter(ns + "p"):
             parts = []
@@ -65,7 +85,11 @@ def extract_local_docx(path: Path) -> tuple[str, str]:
         text = "\n".join(paragraphs)
         if not text or len(text) > 200000:
             raise ValueError("empty or too long")
-        return text, "仅提取正文文字，图片等内容请对照原文件核对。"
+        return text, (
+            "文档包含图片或附加内容，仅提取正文文字，请对照原文件核对。"
+            if has_extra_content
+            else ""
+        )
     except (
         OSError,
         ValueError,

@@ -49,7 +49,7 @@ async function generate() {
         ✨ 已确认 {{ confirmed }} 项 · 待审核 {{ remaining }} 项 · 共
         {{ item.split_items.length }} 项
       </p>
-      <p v-if="!remaining" class="ci-notice ci-before">本条通知已处理。跳过的条目仍可恢复审核。</p>
+      <p v-if="!remaining" class="ci-notice ci-before">本条通知已处理，原文仍可查看。</p>
       <SplitTaskDraft v-for="draft in item.split_items" :key="draft.id" :item="draft" />
     </template>
   </section>

@@ -2,11 +2,13 @@
 
 import asyncio
 import sqlite3
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 from sqlmodel import Session, select
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.database import initialize, make_engine
 from campus_inbox.main import create_app
 from campus_inbox.models import ModelSettings, Suggestion
@@ -22,6 +24,11 @@ TEXT = (
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def active_fixture_dates(monkeypatch):
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime(2026, 10, 29, 7, tzinfo=UTC))
 
 
 @pytest.fixture
@@ -203,13 +210,27 @@ async def test_all_skipped_can_be_reopened_without_duplicate_tasks(client):
     assert len((await client.get("/api/tasks")).json()) == 1
 
 
-async def test_retry_and_whole_notice_ignore_cannot_discard_partial_progress(client):
+async def test_whole_notice_ignore_preserves_partial_progress_and_can_be_restored(client):
     item = await split(client, await notice(client))
     assert (await client.post(f"/api/inbox/{item['id']}/analyze")).status_code == 409
-    await accept(client, item["split_items"][0])
-    assert (await client.post(f"/api/suggestions/{item['id']}/ignore")).status_code == 409
+    task = await accept(client, item["split_items"][0])
+    ignored = await client.post(f"/api/suggestions/{item['id']}/ignore")
+    assert ignored.status_code == 200, ignored.text
     after = await current(client, item)
-    assert after["status"] == "pending" and after["split_items"][1]["status"] == "pending"
+    assert after["status"] == "ignored"
+    assert [draft["status"] for draft in after["split_items"]] == ["accepted", "pending"]
+    blocked = await client.post(
+        f"/api/split-drafts/{item['split_items'][1]['id']}/accept",
+        json=data(item["split_items"][1]),
+    )
+    assert blocked.status_code == 409
+    assert (await client.get("/api/tasks")).json()[0]["id"] == task["id"]
+    reopened = await client.post(f"/api/suggestions/{item['id']}/reopen")
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "pending"
+    assert reopened.json()["split_items"] == after["split_items"]
+    await accept(client, reopened.json()["split_items"][1])
+    assert len((await client.get("/api/tasks")).json()) == 2
 
 
 async def test_duplicates_rechecked_at_confirmation(client):
@@ -276,9 +297,12 @@ async def test_missing_times_and_shared_course_do_not_invent_or_leak_fields(clie
     assert item["split_items"][1]["fields"]["submission_platform"] == "学习通"
 
 
-async def test_generated_notice_requires_per_item_decisions_even_before_accept(client):
+async def test_generated_notice_can_be_ignored_and_restored_before_accept(client):
     item = await split(client, await notice(client))
-    assert (await client.post(f"/api/suggestions/{item['id']}/ignore")).status_code == 409
+    assert (await client.post(f"/api/suggestions/{item['id']}/ignore")).status_code == 200
+    restored = await client.post(f"/api/suggestions/{item['id']}/reopen")
+    assert restored.status_code == 200
+    assert restored.json()["split_items"] == item["split_items"]
     draft = item["split_items"][0]
     await accept(client, draft)
 
