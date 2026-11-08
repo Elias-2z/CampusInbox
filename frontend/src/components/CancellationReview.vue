@@ -10,6 +10,7 @@ import {
   type InboxItem,
 } from '@/api'
 import { useCampus } from '@/stores/campus'
+import { canAssociate } from '@/taskMatching'
 const props = defineProps<{ item: InboxItem }>()
 const store = useCampus()
 const router = useRouter()
@@ -18,10 +19,14 @@ const preview = ref<CancellationPreview | null>(null)
 const previewing = ref(false)
 const error = ref('')
 const active = computed(() =>
-  store.tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+  store.tasks.filter(
+    (t) => ['todo', 'in_progress', 'done'].includes(t.status) && canAssociate(props.item.fields, t),
+  ),
 )
 const candidates = computed(() =>
-  props.item.matched_tasks.filter((t) => ['todo', 'in_progress', 'done'].includes(t.status)),
+  props.item.matched_tasks.filter(
+    (t) => ['todo', 'in_progress', 'done'].includes(t.status) && canAssociate(props.item.fields, t),
+  ),
 )
 const others = computed(() =>
   active.value.filter((t) => !candidates.value.some((c) => c.id === t.id)),
@@ -91,7 +96,9 @@ async function refreshContext() {
     <p class="ci-notice ci-before">
       核对通知取消的是哪项任务。确认后任务会标记为已取消，可在任务详情撤销。
     </p>
-    <p v-if="!active.length" class="ci-change">还没有待办或进行中的任务可关联，请先核对原任务。</p>
+    <p v-if="!active.length" class="ci-change">
+      暂无课程、类型和任务序号相符的任务，请核对原任务。
+    </p>
     <form v-else @submit.prevent="createPreview">
       <label class="ci-field"
         >要取消哪项任务？

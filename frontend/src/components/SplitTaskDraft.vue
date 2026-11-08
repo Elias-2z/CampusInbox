@@ -74,7 +74,7 @@ async function refreshContext() {
 <template>
   <article class="ci-split-card" :aria-label="`第 ${item.position} 项草稿`">
     <h3>
-      {{ item.status === 'accepted' ? '✅' : item.status === 'ignored' ? '📂' : '📝' }} 第
+      {{ item.status === 'accepted' ? '✅' : item.status === 'pending' ? '📝' : '📂' }} 第
       {{ item.position }} 项 · {{ item.fields.title || '任务名称待补充' }}
     </h3>
     <p class="ci-proof ci-split-quote">{{ item.quote }}</p>
@@ -99,6 +99,9 @@ async function refreshContext() {
       <RouterLink class="ci-btn cursor-interaction" :to="`/tasks/${item.task_id}`"
         >查看任务 →</RouterLink
       >
+    </template>
+    <template v-else-if="item.status === 'archived'">
+      <p class="ci-notice ci-before">此条已过期，原文仍可查看。</p>
     </template>
     <template v-else-if="item.status === 'ignored'">
       <p class="ci-notice ci-before">此条已跳过。</p>

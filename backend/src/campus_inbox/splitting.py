@@ -21,6 +21,18 @@ def drafts(session: Session, suggestion_id: str) -> list[SplitDraft]:
     )
 
 
+def expired(draft: SplitDraft, message: Message, current: datetime) -> bool:
+    from campus_inbox.connectors.chaoxing import expired_task_notice
+    from campus_inbox.extraction import Extraction
+
+    return draft.can_create and expired_task_notice(
+        {},
+        Extraction(fields=draft.fields, evidence=draft.evidence, warnings=draft.warnings),
+        current,
+        message.timezone,
+    )
+
+
 def generate(session: Session, suggestion_id: str):
     suggestion = services.get_or_404(session, Suggestion, suggestion_id)
     existing = drafts(session, suggestion_id)
@@ -63,13 +75,23 @@ def generate(session: Session, suggestion_id: str):
         )
     suggestion.updated_at = now()
     session.add(suggestion)
+    session.flush()
+    from campus_inbox.connectors.chaoxing import archive_expired
+
+    archive_expired(session, suggestion_id=suggestion.id, commit=False)
     session.commit()
     session.refresh(suggestion)
     return services.inbox_item(session, suggestion)
 
 
 def pending(session: Session, draft: SplitDraft, revision: datetime) -> Suggestion:
+    from campus_inbox.connectors.chaoxing import EXPIRED_NOTICE, archive_expired
+
     suggestion = services.get_or_404(session, Suggestion, draft.suggestion_id)
+    archive_expired(session, suggestion_id=suggestion.id, commit=False)
+    if draft.status == "archived":
+        session.commit()
+        raise HTTPException(409, EXPIRED_NOTICE)
     if suggestion.status != "pending" or draft.status != "pending":
         raise HTTPException(409, "条目或通知已处理，请刷新后核对。")
     if draft.updated_at != revision:
@@ -110,7 +132,12 @@ def settle(session: Session, suggestion: Suggestion):
     session.flush()
     items = drafts(session, suggestion.id)
     if all(item.status != "pending" for item in items):
-        suggestion.status = "accepted" if any(i.status == "accepted" for i in items) else "ignored"
+        if any(item.status == "accepted" for item in items):
+            suggestion.status = "accepted"
+        elif any(item.status == "ignored" for item in items):
+            suggestion.status = "ignored"
+        else:
+            suggestion.status = "archived"
     suggestion.updated_at = now()
     session.add(suggestion)
 
@@ -129,7 +156,8 @@ def accept(session: Session, draft_id: str, body: SplitAccept) -> Task:
     if not draft.can_create:
         raise HTTPException(409, "此条涉及变更或其他内容，不能作为新任务创建。")
     fields, evidence = reviewed(draft, body)
-    if services.matching_tasks(session, fields) and not body.allow_duplicate:
+    message = services.get_or_404(session, Message, suggestion.message_id)
+    if services.matching_tasks(session, fields, message=message) and not body.allow_duplicate:
         raise HTTPException(409, "发现可能重复的任务，请核对并明确选择仍然创建独立任务。")
     values = body.model_dump(include=set(TaskFields.model_fields))
     values["due_at"] = services.utc_value(body.due_at)
@@ -161,6 +189,12 @@ def decide(session: Session, draft_id: str, revision: datetime, reopen: bool = F
         raise HTTPException(409, "条目已处理或修改，请刷新后核对。")
     if not reopen and suggestion.status != "pending":
         raise HTTPException(409, "请先将通知恢复为待处理。")
+    if reopen:
+        from campus_inbox.connectors import chaoxing
+
+        message = services.get_or_404(session, Message, suggestion.message_id)
+        if expired(draft, message, chaoxing.now()):
+            raise HTTPException(409, "此条已过期，原文仍可查看。")
     draft.status, draft.updated_at = target, now()
     session.add(draft)
     if reopen:

@@ -11,10 +11,8 @@ const tabs = [
   { id: 'read', label: '已读' },
   { id: 'all', label: '全部' },
 ]
-const items = computed(
-  () =>
-    store.reminderFeed?.items.filter((item) => tab.value === 'all' || item.status === tab.value) ||
-    [],
+const items = computed(() =>
+  store.visibleReminders.filter((item) => tab.value === 'all' || item.status === tab.value),
 )
 </script>
 <template>
@@ -71,9 +69,7 @@ const items = computed(
         </select></label
       ><RouterLink class="ci-btn ci-text cursor-interaction" to="/settings">提醒设置 ↗</RouterLink>
     </div>
-    <p class="ci-notice ci-before">
-      即将截止与逾期分别提醒；即将截止提醒即使已读或延后，到期后仍会出现新的逾期提醒。
-    </p>
+    <p class="ci-notice ci-before">任务到期后会自动从此页移出，包括已读和稍后提醒。</p>
     <p v-if="!store.reminderFeed && store.reminderLoading" class="ci-loading" role="status">
       正在检查最新截止时间…
     </p>
@@ -88,13 +84,10 @@ const items = computed(
         v-for="item in items"
         :key="item.id"
         class="ci-reminder-card"
-        :class="{ 'ci-reminder-overdue': item.phase === 'overdue' }"
         :aria-label="`${item.task.title}的提醒`"
       >
         <div class="ci-reminder-heading">
-          <span class="ci-reminder-phase">{{
-            item.phase === 'overdue' ? '⏰ 已逾期' : '🔔 即将截止'
-          }}</span
+          <span class="ci-reminder-phase">🔔 即将截止</span
           ><span class="ci-tag">{{
             item.status === 'read' ? '已读' : item.status === 'snoozed' ? '稍后提醒' : '未读'
           }}</span>

@@ -9,6 +9,7 @@ import httpx
 import pytest
 from sqlmodel import Session, select
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.connectors.platform_status import PlatformObservation
 from campus_inbox.main import create_app
 
@@ -163,7 +164,8 @@ async def test_only_observed_task_can_be_rechecked(context):
     assert response.status_code == 409
 
 
-async def test_unknown_time_is_visible_for_review_before_entering_root_inbox(context):
+async def test_unknown_time_is_visible_for_review_before_entering_root_inbox(context, monkeypatch):
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime(2026, 11, 3, tzinfo=UTC))
     app, client = context
     runtime = app.state.chaoxing
     runtime.enabled = True
@@ -429,7 +431,7 @@ async def test_actual_publication_time_requires_timezone(context):
     assert (await client.get("/api/inbox")).json() == []
 
 
-async def test_archived_suggestion_can_be_restored_without_losing_message(context):
+async def test_expired_suggestion_stays_archived_without_losing_message(context):
     app, client = context
     event_id, _ = app.state.chaoxing.intake.receive(
         "test",
@@ -447,8 +449,36 @@ async def test_archived_suggestion_can_be_restored_without_losing_message(contex
     assert len(items) == 1 and items[0]["message"]["text"] == "提交实验报告"
     assert (await client.get("/api/inbox?status=pending")).json() == []
     restored = await client.post(f"/api/suggestions/{items[0]['id']}/restore-archive")
-    assert restored.status_code == 200 and restored.json()["status"] == "pending"
+    assert restored.status_code == 409
+    assert (await client.get("/api/inbox?status=pending")).json() == []
+    assert (await client.get("/api/inbox?status=archived")).json()[0]["message"][
+        "text"
+    ] == "提交实验报告"
+
+
+async def test_inbox_refresh_archives_elapsed_learning_deadline_without_running_collector(
+    context, monkeypatch
+):
+    app, client = context
+    clock = [datetime(2026, 11, 6, tzinfo=UTC)]
+    monkeypatch.setattr(chaoxing, "now", lambda: clock[0])
+    event_id, _ = app.state.chaoxing.intake.receive(
+        "test",
+        {
+            "kind": "task_center",
+            "message_id": "expires-later",
+            "text": "软件工程请提交实验报告。",
+            "title": "实验报告",
+            "published_at": "2026-11-01T01:00:00Z",
+            "deadline": "2026-11-07",
+            "field_evidence": {"deadline": "截止日期2026-11-07"},
+        },
+    )
+    assert app.state.chaoxing.intake.process(event_id) == "done"
     assert len((await client.get("/api/inbox?status=pending")).json()) == 1
+    clock[0] = datetime(2026, 11, 8, tzinfo=UTC)
+    assert (await client.get("/api/inbox?status=pending")).json() == []
+    assert len((await client.get("/api/inbox?status=archived")).json()) == 1
 
 
 async def test_unprocessed_attachment_can_be_downloaded_without_exposing_its_bytes_in_list(context):

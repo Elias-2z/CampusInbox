@@ -19,8 +19,13 @@ def anyio_backend():
 
 
 @pytest.fixture
-async def client(tmp_path):
-    app = create_app(tmp_path / "calendar.db")
+def clock():
+    return [datetime(2026, 3, 1, tzinfo=UTC)]
+
+
+@pytest.fixture
+async def client(tmp_path, clock):
+    app = create_app(tmp_path / "calendar.db", reminder_clock=lambda: clock[0])
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -65,6 +70,18 @@ async def export(client, **params):
 
 def events(response):
     return Calendar.from_ical(response.content).walk("VEVENT")
+
+
+async def test_expired_entries_are_hidden_from_calendar_and_export(client, clock):
+    clock[0] = datetime(2026, 10, 1, tzinfo=UTC)
+    old_date = await task(client, title="昨日截止", due_at=None, due_date="2026-09-30")
+    old_time = await task(client, title="已到时刻", due_at="2026-10-01T08:00:00+08:00")
+    today = await task(client, title="今日截止", due_at=None, due_date="2026-10-01")
+    params = {"start": "2026-09-29", "status": "all"}
+    assert [item["id"] for item in (await feed(client, **params))["tasks"]] == [today["id"]]
+    assert len(events(await export(client, **params))) == 1
+    ids = {item["id"] for item in (await client.get("/api/tasks")).json()}
+    assert {old_date["id"], old_time["id"]} <= ids
 
 
 async def test_local_month_boundaries_and_undated_tasks(client):

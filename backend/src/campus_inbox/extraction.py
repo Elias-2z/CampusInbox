@@ -2,15 +2,19 @@
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from itertools import pairwise
 from zoneinfo import ZoneInfo
 
 from campus_inbox.temporal import chinese_number, resolve_day
 
 DATE = re.compile(
-    r"(?:(?P<year>\d{4})年)?(?P<month>[一二三四五六七八九十两\d]{1,3})月(?P<day>[一二三四五六七八九十两\d]{1,3})[日号]?"
-    r"|(?P<iso>\d{4}[-/]\d{1,2}[-/]\d{1,2})"
+    r"(?:(?:(?P<year>\d{4})[ \t\u3000]*年[ \t\u3000]*)?"
+    r"(?P<month>[一二三四五六七八九十两\d]{1,3})[ \t\u3000]*月[ \t\u3000]*"
+    r"(?P<day>[一二三四五六七八九十两\d]{1,3})(?:[ \t\u3000]*[日号])?"
+    r"|(?P<iso>(?<!\d)\d{4}(?P<date_sep>[-/.])\d{1,2}(?P=date_sep)\d{1,2}(?!\d))"
+    r"|(?P<short>(?<![\d/.-])\d{1,2}[-/]\d{1,2}(?![\d/.-])))"
+    r"(?:[ \t]*(?:周|星期)(?P<weekday>[一二三四五六日天]))?"
     r"|(?P<relative>今天|明天|后天|今晚|明晚|(?:下星期|本星期|这星期|下周|本周|这周|周|星期)[一二三四五六日天])"
     r"|(?P<natural>大后天|昨天|前天|(?:下下|下|上|本|这)?礼拜[一二三四五六日天]"
     r"|(?:下下周|上周)[一二三四五六日天]"
@@ -18,10 +22,25 @@ DATE = re.compile(
     r"|(?:本月|这个月|下月|下个月)(?:底|末|[一二三四五六七八九十两\d]{1,3}[日号]))"
 )
 TIME = re.compile(
-    r"^\s*(?:的)?\s*(?P<period>上午|早上|下午|晚上|晚间|中午|凌晨|早|晚)?\s*"
+    r"^(?:(?P<iso_clock>T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)"
+    r"|\s*(?:的)?\s*(?P<period>上午|早上|下午|晚上|晚间|中午|凌晨|早|晚)?\s*"
     r"(?P<hour>\d{1,2}|[一二三四五六七八九十两]{1,3})"
-    r"(?:(?:[:：])(?P<minute>\d{2})|(?:点|时)(?P<cnminute>\d{1,2}|一刻|三刻|半|整|[零一二三四五六七八九十两]{1,3})?(?:分)?)"
+    r"(?:(?:[:：])(?P<minute>\d{2})|(?:点|时)(?P<cnminute>\d{1,2}|一刻|三刻|半|整|[零一二三四五六七八九十两]{1,3})?(?:分)?))"
 )
+SUBMISSION_AFTER_DATE = re.compile(
+    r"^\s*(?:(?:在|通过)\s*(?:学习通|雨课堂|课程群|QQ(?:群)?|微信(?:群)?|邮箱)"
+    r"(?:上|中|内)?\s*)?(?:提交|上交|上传|补交|交[给到至])"
+)
+BEFORE_CLASS_SUBMISSION = re.compile(
+    r"^(?:上课|开课|实验课|课|下课|放学)前\s*(?:请|务必)?\s*(?:提交|上交|上传|补交|完成|交)"
+)
+BEFORE_SUBMISSION = re.compile(
+    r"^(?:之|以)?前\s*(?:请|务必)?\s*(?:(?:在|通过)\s*(?:学习通|雨课堂|课程群|QQ(?:群)?|微信(?:群)?|邮箱)"
+    r"(?:上|中|内)?\s*)?(?:提交|上交|上传|补交|完成|交|将|把)"
+)
+SUBMISSION_WINDOW = re.compile(r"^\s*(?:到|至|[-—–~～])")
+CLAUSE_BOUNDARY = re.compile(r"[，,。；;！!？?\n]")
+NEGATED_DATE = re.compile(r"(?:不是|并非|无需|不用|不要|不必)[^：:]{0,12}$")
 COURSES = [
     "数据库原理",
     "软件工程",
@@ -44,7 +63,7 @@ CHANGE_WORDS = re.compile(
 DEADLINE_CHANGE = re.compile(
     r"延期|延迟|推迟|顺延|延后|延至|提前(?:到|至|为|[一二三四五六七八九十0-9])"
     r"|(?:截止(?:时间|日期|期限)?|(?:提交|交付|上交)(?:时间|日期|期限))"
-    r"[^。，；\n]{0,40}(?:调整|改[为到成]|变更)"
+    r"(?:[^。，；\n]{0,40}(?:调整|改[为到成至]|变更)|[，,]\s*现改至)"
 )
 REVISED_DEADLINE_PREFIX = re.compile(
     r"(?:延期|延迟|推迟|提前|顺延|延后|延至|调整|变更|更改|改)[到至为成]?$"
@@ -156,11 +175,13 @@ def deadline_supported(text: str) -> bool:
 
 
 def infer_change_subject(text: str) -> str:
-    for clause in re.split(r"[，。；\n：:]", text):
+    # The comma before an explicit revision belongs to the same deadline change.
+    for clause in re.split(r"[。；\n]", text):
         change = DEADLINE_CHANGE.search(clause)
         if not change:
             continue
-        subject = clause[: change.start()].strip(" 《》【】")
+        prefix = clause[: change.start()]
+        subject = re.split(r"[，,：:]", prefix.split("原定", 1)[0])[-1].strip(" 《》【】")
         subject = re.sub(r"^(?:关于|通知|请注意|本次)", "", subject)
         subject = re.sub(r"(?:的)?(?:(?:截止|提交|交付|上交)(?:时间|日期|期限))?的?$", "", subject)
         for course in COURSES:
@@ -208,6 +229,7 @@ def lab_schedule_quotes(text: str) -> list[str]:
         if stamp and (
             re.search(r"实验(?:时间|日期|安排)[：:\s为定于]*$", clause[: stamp.start()])
             or re.search(r"(?:进行|参加|开展)实验|(?:到|前往)实验室", clause[stamp.end() :])
+            or ("实验课" in clause and class_schedule_date(clause, stamp.end()))
         ):
             if clause not in quotes:
                 quotes.append(clause)
@@ -237,7 +259,17 @@ def learning_end_label(text: str, prefix: str) -> bool:
 
 def date_period_suffix(suffix: str) -> str:
     """Classify date-only wording without inventing an hour for '晚之前'."""
-    return re.sub(r"^\s*(?:上午|早上|下午|晚上|晚间|中午|凌晨|早|晚)\s*", "", suffix)
+    return re.sub(r"^\s*(?:上午|早上|下午|晚上|晚间|中午|凌晨|午夜|早|晚)\s*", "", suffix)
+
+
+def question_clause(clause: str) -> bool:
+    return bool(re.search(r"(?:吗|么|呢)\s*$|^\s*(?:请问|想问|我想问|咨询一下)", clause))
+
+
+def unasserted_date(text: str, start: int, end: int) -> bool:
+    prefix = CLAUSE_BOUNDARY.split(text[:start])[-1]
+    suffix = CLAUSE_BOUNDARY.split(text[end:])[0]
+    return bool(NEGATED_DATE.search(prefix)) or question_clause(prefix + suffix)
 
 
 def deadline_clause_score(text: str, start: int, end: int, *, learning_end: bool = False) -> int:
@@ -250,17 +282,45 @@ def deadline_clause_score(text: str, start: int, end: int, *, learning_end: bool
         return 0
     if re.match(r"发布|布置|发出|收到|之后|以后|上课(?!前)|开始(?!前)", suffix):
         return 0
-    if re.search(r"(?:无需|不用|不要|并非)[^：:]{0,12}$", prefix):
+    if re.search(r"(?:不是|无需|不用|不要|并非)[^：:]{0,12}$", prefix):
         return 0
     if REVISED_DEADLINE_PREFIX.search(prefix):
         return 3
-    if re.search(r"(?:截止(?:时间|日期)?|截至|最晚|最迟)[：:\s至到为]*$", prefix):
+    if re.search(
+        r"(?:截止(?:时间|日期)?|截至|(?:最晚|最迟)(?:提交)?(?:时间|日期)?)[：:\s至到为是]*$",
+        prefix,
+    ):
         return 2
-    if re.match(r"(?:截止|为止|(?:之|以)?前\s*(?:提交|上交|上传|完成|交|将|把))", suffix):
+    if re.match(r"(?:截止|为止)", suffix) or BEFORE_SUBMISSION.match(suffix):
         return 2
-    if re.match(r"(?:提交|上交|上传|补交)", suffix):
+    if SUBMISSION_AFTER_DATE.match(suffix) or BEFORE_CLASS_SUBMISSION.match(suffix):
+        return 1
+    if re.match(r"收齐|交齐|交稿", suffix) and TASK_WORDS.search(text):
         return 1
     return 0
+
+
+def class_schedule_date(text: str, date_end: int) -> bool:
+    suffix = text[date_end:]
+    if clock := TIME.match(suffix):
+        suffix = suffix[clock.end() :]
+    return bool(
+        re.match(
+            r"(?:有|安排|进行)?(?:第[一二三四五六七八九十百\d]+次)?"
+            r"(?:实验课|上课|开课)(?!前)",
+            date_period_suffix(suffix).lstrip(),
+        )
+    )
+
+
+def class_schedule_evidence(text: str, quote: str) -> bool:
+    if not quote or not DATE.search(quote):
+        return False
+    spans = list(re.finditer(re.escape(quote), text))
+    return bool(spans) and all(
+        any(class_schedule_date(text, span.start() + date.end()) for date in DATE.finditer(quote))
+        for span in spans
+    )
 
 
 def course_schedule_date(text: str, suffix: str) -> bool:
@@ -268,7 +328,7 @@ def course_schedule_date(text: str, suffix: str) -> bool:
     return not re.search(r"作业|报告|习题|提交|上交|补交|上传", text) and bool(
         re.match(
             r"\s*(?:有|安排|进行)?(?:第[一二三四五六七八九十百\d]+次)?"
-            r"(?:实验课|上课|考试|答辩|开会|举行会议)(?!取消|延期)",
+            r"(?:考试|答辩|开会|举行会议)(?!取消|延期)",
             suffix,
         )
     )
@@ -298,11 +358,20 @@ def parse_deadline(
     warnings: list[str] = []
     found_date = False
     for match in active_date_matches(text):
+        if class_schedule_date(text, match.end()):
+            continue
         found_date = True
         clock = TIME.match(text[match.end() :])
         if clock is None:
             continue
-        hour = number(clock["hour"])
+        end = match.end() + clock.end()
+        if unasserted_date(text, match.start(), end):
+            continue
+        tail = text[end:]
+        if (separator := SUBMISSION_WINDOW.match(tail)) and TIME.match(tail[separator.end() :]):
+            warnings.append("通知包含提交时间段，请核对实际截止时间。")
+            continue
+        hour = number(clock["hour"]) if clock["hour"] else 0
         minute = (
             int(clock["minute"])
             if clock["minute"]
@@ -324,18 +393,23 @@ def parse_deadline(
             hour += 12
         elif period == "凌晨" and hour == 12:
             hour = 0
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        midnight = hour == 24 and minute == 0 and not period
+        if not (midnight or 0 <= hour <= 23 and 0 <= minute <= 59):
             warnings.append("原文时间不合法，请核对小时和分钟。")
             continue
         try:
             resolved = datetime.combine(resolve_day(match, anchor), datetime.min.time())
-            due = resolved.replace(
-                hour=hour, minute=minute, second=0, microsecond=0, tzinfo=anchor.tzinfo
-            )
+            if clock["iso_clock"]:
+                due = datetime.fromisoformat(resolved.date().isoformat() + clock["iso_clock"])
+                if due.tzinfo is None:
+                    due = due.replace(tzinfo=anchor.tzinfo)
+            else:
+                due = resolved.replace(hour=hour % 24, minute=minute, tzinfo=anchor.tzinfo)
+                if midnight:
+                    due += timedelta(days=1)
         except (ValueError, OverflowError):
             warnings.append("原文日期不合法，请手动核对。")
             continue
-        end = match.end() + clock.end()
         nearby = text[end : end + 16]
         prefix = text[max(0, match.start() - 10) : match.start()]
         score = 2 if re.search(r"截止|[之以]?前|最[晚迟]", nearby + prefix) else 0
@@ -389,7 +463,9 @@ def parse_date_only(
     anchor = anchor.astimezone(ZoneInfo(timezone))
     candidates = []
     for match in active_date_matches(text):
-        if TIME.match(text[match.end() :]):
+        if TIME.match(text[match.end() :]) or class_schedule_date(text, match.end()):
+            continue
+        if unasserted_date(text, match.start(), match.end()):
             continue
         if scoped_deadline and not deadline_clause_score(
             text, match.start(), match.end(), learning_end=True
@@ -404,6 +480,8 @@ def parse_date_only(
             or (scoped_deadline and learning_end_label(text, prefix.strip()))
             or REVISED_DEADLINE_PREFIX.search(prefix.strip())
             or re.match(r"\s*(?:之前|以前|前|截止|为止|提交|上交|上传|完成)", suffix)
+            or SUBMISSION_AFTER_DATE.match(suffix)
+            or BEFORE_CLASS_SUBMISSION.match(suffix.strip())
             or course_schedule_date(text, suffix)
         ):
             continue
@@ -411,6 +489,15 @@ def parse_date_only(
             day = resolve_day(match, anchor)
         except (ValueError, OverflowError):
             continue
+        if (
+            (
+                BEFORE_CLASS_SUBMISSION.match(suffix.strip())
+                or BEFORE_SUBMISSION.match(suffix.strip())
+            )
+            and re.fullmatch(r"(?:周|星期)[一二三四五六日天]", match[0])
+            and day < anchor.date()
+        ):
+            day += timedelta(days=7)
         period = re.match(r"\s*(?:上午|早上|下午|晚上|晚间|中午|凌晨|早|晚)", text[match.end() :])
         quote = text[match.start() : match.end() + (period.end() if period else 0)]
         candidates.append((day, quote))
@@ -440,6 +527,31 @@ def infer_title(text: str) -> str:
     return ""
 
 
+STATUS_NOTICE = re.compile(
+    r"(?!.*(?:请|务必|需要|必须|确认|核对|检查|是否|如果|重新|尚未|未能))"
+    r"[\w《》· -]{0,30}"
+    r"(?:(?:作业|考试|测验|实验)?(?:成绩|分数|批阅结果)(?:已|已经)(?:公布|发布|更新)"
+    r"|(?:作业|报告|试卷|考试|测验)(?:提交成功|已(?:经)?(?:提交(?:成功)?|批阅|批改|阅卷|结束|截止))"
+    r"|(?:本周|这周|今天|本次)?(?:没有|暂无|无)(?:新的?)?作业)"
+)
+STATUS_FOLLOWUP = re.compile(
+    r"(?:请(?:自行|注意|及时)?(?:查看|查收)|可(?:在学习通|在课程群)?查看(?:成绩|结果)?"
+    r"|(?:系统)?回执仅供留存)"
+)
+
+
+def status_only_notice(text: str) -> bool:
+    first, *rest = re.split(r"[，,。；;！!\n]+", text.replace("\u200b", "").strip())
+    prefix, sep, body = (
+        re.split(r"([：:])", first, maxsplit=1) if re.search(r"[：:]", first) else ("", "", first)
+    )
+    if sep and prefix.strip() not in {*COURSES, "通知", "系统通知", "提交回执", "成绩通知"}:
+        return False
+    return bool(STATUS_NOTICE.fullmatch(body.strip())) and all(
+        not clause.strip() or STATUS_FOLLOWUP.fullmatch(clause.strip()) for clause in rest
+    )
+
+
 def extract_rules(
     text: str, sent_at: datetime | None, timezone: str, *, scoped_deadline: bool = False
 ) -> Extraction:
@@ -467,7 +579,10 @@ def extract_rules(
             if cancellation_supported(text)
             else "检测到其他变更或取消信息，请人工核对，不自动修改或创建任务。"
         )
-    elif not TASK_WORDS.search(text):
+    elif status_only_notice(text) or not any(
+        TASK_WORDS.search(clause) and not question_clause(clause)
+        for clause in CLAUSE_BOUNDARY.split(text)
+    ):
         result.action = "ignore"
         result.warnings.append("未发现明确任务线索。可忽略，或通过“新建任务”手动记录。")
     title = (
@@ -504,7 +619,9 @@ def extract_rules(
     result.warnings.extend(deadline.warnings)
     if deadline.quote:
         result.evidence["due_at"] = {"method": "rule", "quote": deadline.quote}
-    elif date_only and not any("多个可能的截止时间" in w for w in deadline.warnings):
+    elif date_only and not any(
+        "多个可能的截止时间" in w or "提交时间段" in w for w in deadline.warnings
+    ):
         result.fields["due_date"] = date_only[0].isoformat()
         result.evidence["due_date"] = {"method": "rule", "quote": date_only[1]}
         result.warnings = [
@@ -536,7 +653,8 @@ def extract_rules(
         result.action = "review"
         result.warnings.append("这段通知包含多个条目，请生成拆分草稿后逐项核对。")
     result.needs_llm = (
-        not is_multiple(text)
+        result.action != "ignore"
+        and not is_multiple(text)
         and not cancellation_supported(text)
         and not (
             title
@@ -596,7 +714,7 @@ def merge_model(
         due_text
         and not result.fields.get("due_at")
         and not result.fields.get("due_date")
-        and not any("多个可能的截止时间" in w for w in result.warnings)
+        and not any("多个可能的截止时间" in w or "提交时间段" in w for w in result.warnings)
     ):
         source_position = text.find(due_text)
         prefix = re.split(r"[，,。；;！!？?\n]", text[:source_position])[-1]
@@ -607,11 +725,22 @@ def merge_model(
             or re.match(r"\s*(?:上课|发布|布置|开始|之后|以后)", suffix)
         )
         if (
-            scoped_deadline
-            or due_text not in text
+            due_text not in text
             or has_alternative_dates(text)
             or len(list(DATE.finditer(text))) > 1
+            or class_schedule_evidence(text, due_text)
+            or any(
+                unasserted_date(text, source_position + date.start(), source_position + date.end())
+                for date in DATE.finditer(due_text)
+            )
             or unsupported_context
+            or (
+                scoped_deadline
+                and deadline_clause_score(
+                    text, source_position, source_position + len(due_text), learning_end=True
+                )
+                == 0
+            )
         ):
             rejected = True
         else:

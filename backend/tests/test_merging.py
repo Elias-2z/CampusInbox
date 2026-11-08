@@ -1,10 +1,12 @@
 """Explicit source association and selected field merging must be atomic and reversible."""
 
 import asyncio
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.main import create_app
 from campus_inbox.schemas import TaskFields
 
@@ -18,7 +20,9 @@ def anyio_backend():
 
 
 @pytest.fixture
-async def client(tmp_path):
+async def client(tmp_path, monkeypatch):
+    # Exercise associations while the example notification is still actionable.
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime(2026, 10, 30, tzinfo=UTC))
     app = create_app(tmp_path / "merges.db")
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(
@@ -80,6 +84,19 @@ async def current(client, item):
     return next(
         i for i in (await client.get("/api/inbox?status=all")).json() if i["id"] == item["id"]
     )
+
+
+async def test_different_courses_cannot_link_identically_named_tasks(client):
+    original = await task(client, course="线性代数")
+    item = await notice(client)
+    assert item["matched_tasks"] == []
+    response = await client.post(
+        f"/api/suggestions/{item['id']}/merge-preview",
+        json={"task_id": original["id"], "fields": []},
+    )
+    assert response.status_code == 422
+    assert (await client.get(f"/api/tasks/{original['id']}")).json()["task"] == original
+    assert (await current(client, item))["status"] == "pending"
 
 
 async def test_link_only_preserves_all_business_fields_and_links_sources(client):
@@ -417,7 +434,7 @@ async def test_deadline_undo_restores_merge_provenance_and_old_merge_undo_stays_
 
 async def test_existing_split_task_retains_its_creation_evidence_after_another_link(client):
     parent = await split(
-        client, "软件工程：\n1. 周一20:00前提交需求分析报告。\n2. 周三18:00前提交原型设计。"
+        client, "软件工程：\n1. 下周一20:00前提交需求分析报告。\n2. 下周三18:00前提交原型设计。"
     )
     original_draft = parent["split_items"][0]
     created = await client.post(

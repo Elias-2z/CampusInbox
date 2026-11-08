@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
+  deadlineExpired,
   post,
   request,
   taskInput,
@@ -32,8 +33,14 @@ export const useCampus = defineStore('campus', () => {
   const reminderBusy = ref('')
   const reminderError = ref('')
   const reminderStale = ref(false)
-  const unreadReminders = computed(
-    () => reminderFeed.value?.items.filter((item) => item.status === 'unread') || [],
+  const visibleReminders = computed(
+    () =>
+      reminderFeed.value?.items.filter(
+        (item) => item.phase === 'upcoming' && !deadlineExpired(item, clock.value),
+      ) || [],
+  )
+  const unreadReminders = computed(() =>
+    visibleReminders.value.filter((item) => item.status === 'unread'),
   )
   let reminderRefreshVersion = 0
   async function refreshReminders() {
@@ -265,6 +272,7 @@ export const useCampus = defineStore('campus', () => {
     reminderBusy,
     reminderError,
     reminderStale,
+    visibleReminders,
     unreadReminders,
     refreshReminders,
     actOnReminder,

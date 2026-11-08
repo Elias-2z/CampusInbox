@@ -2,17 +2,20 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
+  deadlineExpired,
   displayDate,
   displayMessageTime,
   displayDeadline,
   fieldNames,
   request,
+  type Task,
   statusNames,
   type TaskDetail,
   type TaskEvent,
 } from '@/api'
 import { useCampus } from '@/stores/campus'
 import TaskList from '@/components/TaskList.vue'
+import TaskRecognitionModal from '@/components/TaskRecognitionModal.vue'
 import AttachmentText from '@/components/AttachmentText.vue'
 import RecognitionBadge from '@/components/RecognitionBadge.vue'
 const store = useCampus()
@@ -21,6 +24,7 @@ const status = ref('active')
 const course = ref('')
 const search = ref('')
 const info = ref<TaskDetail | null>(null)
+const recognitionTask = ref<Task | null>(null)
 const detailError = ref('')
 const detailLoading = ref(false)
 const selectedVersion = computed(() => store.tasks.find((t) => t.id === route.params.id)?.version)
@@ -36,6 +40,8 @@ const filtered = computed(() =>
             ? ['completed', 'submitted'].includes(t.status)
             : t.status === status.value) &&
       (!course.value || t.course === course.value) &&
+      (!['active', 'todo', 'in_progress', 'done'].includes(status.value) ||
+        (!t.checkin_closed && !deadlineExpired(t, store.clock))) &&
       t.title.toLowerCase().includes(search.value.trim().toLowerCase()),
   ),
 )
@@ -153,7 +159,12 @@ function platformEvidence(event: TaskEvent) {
   </div>
   <div :class="{ 'ci-tasksplit': !!route.params.id }">
     <section>
-      <TaskList v-if="store.ready" :tasks="filtered" />
+      <TaskList
+        v-if="store.ready"
+        :tasks="filtered"
+        can-recognize
+        @recognize="recognitionTask = $event"
+      />
       <p class="ci-notice">截止时间可以待补充；归档可以恢复，不会删除来源记录。</p>
     </section>
     <section v-if="route.params.id" class="ci-detailpanel">
@@ -214,6 +225,12 @@ function platformEvidence(event: TaskEvent) {
             @click="store.edit(info.task)"
           >
             编辑任务</button
+          ><button
+            class="ci-btn cursor-interaction"
+            :disabled="store.busy"
+            @click="recognitionTask = info.task"
+          >
+            重新识别 ↻</button
           ><button
             v-if="info.task.status !== 'archived'"
             class="ci-btn cursor-interaction"
@@ -386,4 +403,9 @@ function platformEvidence(event: TaskEvent) {
       </template>
     </section>
   </div>
+  <TaskRecognitionModal
+    v-if="recognitionTask"
+    :task="recognitionTask"
+    @close="recognitionTask = null"
+  />
 </template>

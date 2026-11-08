@@ -2,7 +2,8 @@
 import { courseEmoji, deadlineExpired, displayDeadline, statusNames, type Task } from '@/api'
 import { useCampus } from '@/stores/campus'
 import RecognitionBadge from '@/components/RecognitionBadge.vue'
-defineProps<{ tasks: Task[] }>()
+defineProps<{ tasks: Task[]; canRecognize?: boolean }>()
+defineEmits<{ recognize: [task: Task] }>()
 const store = useCampus()
 function overdue(task: Task) {
   return deadlineExpired(task, store.clock) && ['todo', 'in_progress', 'done'].includes(task.status)
@@ -47,6 +48,16 @@ function toggle(task: Task, event: Event) {
                 : statusNames[task.status]
           }}</span>
         </div>
+        <button
+          v-if="canRecognize"
+          type="button"
+          class="ci-btn ci-text cursor-interaction"
+          :disabled="store.busy"
+          :aria-label="`重新识别：${task.title}`"
+          @click="$emit('recognize', task)"
+        >
+          重新识别 ↻
+        </button>
       </div>
       <RouterLink
         class="ci-arrow cursor-interaction"

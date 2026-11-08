@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from campus_inbox.inference import APIConfig, APIProvider, APIUsage, ModelManager
 from campus_inbox.main import create_app
-from campus_inbox.models import ModelSettings
+from campus_inbox.models import Message, ModelSettings
 from campus_inbox.providers import ProviderError
 
 pytestmark = pytest.mark.anyio
@@ -119,6 +119,35 @@ async def import_notice(client, text="请提交报告，时间待定。"):
     return await client.post(
         "/api/inbox", json={"text": text, "sent_at": "2026-11-04T12:00:00+08:00"}
     )
+
+
+@pytest.mark.parametrize("source", ["manual", "qq", "chaoxing"])
+async def test_task_recognition_respects_api_selection_and_automatic_source_privacy(
+    context, source
+):
+    client, _, calls, app, _, _ = context
+    await enable(client)
+    task = (
+        await client.post(
+            "/api/tasks",
+            json={"title": "用户任务", "description": "请整理《报告》，交到教学楼A101，时间待定。"},
+        )
+    ).json()
+    if source != "manual":
+        with Session(app.state.engine) as session:
+            message = session.get(Message, task["message_id"])
+            message.source = "自动采集"
+            message.dedupe_key = f"{source}:synthetic-{task['id']}"
+            session.add(message)
+            session.commit()
+    response = await client.post(
+        f"/api/tasks/{task['id']}/recognize", json={"expected_version": task["version"]}
+    )
+    assert response.status_code == 200, response.text
+    assert len(calls) == (1 if source == "manual" else 0)
+    if source == "manual":
+        assert response.json()["fields"]["title"] == "报告"
+    assert (await client.get(f"/api/tasks/{task['id']}")).json()["task"] == task
 
 
 async def test_api_selection_inbox_and_key_never_returned_or_stored_in_db(context):

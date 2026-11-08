@@ -22,6 +22,7 @@ from campus_inbox.connectors.chaoxing import (
     UNPROCESSED_ATTACHMENT,
     ChaoxingEvent,
     ChaoxingIntake,
+    archive_expired,
     attachment_only_notice,
     public_notice_original,
 )
@@ -672,6 +673,7 @@ class ChaoxingRuntime:
 
     def process_pending(self):
         with Session(self.engine) as session:
+            archive_expired(session)
             ids = list(
                 session.exec(
                     select(ChaoxingEvent.id).where(ChaoxingEvent.state == "pending").limit(100)
@@ -683,12 +685,44 @@ class ChaoxingRuntime:
             self.intake.process(event_id)
         if self.enabled and not self.stopping.is_set():
             self.process_local_attachments()
+        with Session(self.engine) as session:
+            archive_expired(session)
 
     def process_local_attachments(self):
         extensions = attachments.LOCAL_DOCUMENT_TYPES
         if attachments.supports_local_ocr():
             extensions = extensions | attachments.LOCAL_OCR_TYPES
         with Session(self.engine) as session:
+            # Revisit the old unconditional DOCX warning once, for pending drafts only.
+            legacy_ids = session.exec(
+                select(Attachment.id)
+                .join(Suggestion, Suggestion.message_id == Attachment.message_id)
+                .where(
+                    Suggestion.status == "pending",
+                    Attachment.status == "ready",
+                    Attachment.error == "仅提取正文文字，图片等内容请对照原文件核对。",
+                    func.lower(Attachment.filename).endswith(".docx"),
+                )
+                .limit(5)
+            ).all()
+            for attachment_id in legacy_ids:
+                changed = session.execute(
+                    update(Attachment)
+                    .where(
+                        Attachment.id == attachment_id,
+                        Attachment.status == "ready",
+                        Attachment.error == "仅提取正文文字，图片等内容请对照原文件核对。",
+                    )
+                    .values(status="failed", error=UNPROCESSED_ATTACHMENT)
+                ).rowcount
+                if not changed:
+                    continue
+                session.connection().exec_driver_sql(
+                    "INSERT INTO localattachmentextraction (attachment_id, state) "
+                    "VALUES (?, 'pending') "
+                    "ON CONFLICT(attachment_id) DO UPDATE SET state='pending'",
+                    (attachment_id,),
+                )
             # Only enqueue untouched learning-platform originals in the existing local queue.
             old_ids = session.exec(
                 select(Attachment.id)
@@ -750,8 +784,9 @@ class ChaoxingRuntime:
                 if self.stopping.is_set() or not self.enabled:
                     break
                 with Session(self.engine) as session:
+                    queue_state = "complete"
                     if values is not None:
-                        session.execute(
+                        changed = session.execute(
                             update(Attachment)
                             .where(
                                 Attachment.id == attachment_id,
@@ -760,16 +795,44 @@ class ChaoxingRuntime:
                                 Attachment.error == previous_error,
                             )
                             .values(**values)
-                        )
+                        ).rowcount
+                        if changed and values["status"] == "ready" and not values["error"]:
+                            queue_state = "awaiting_refresh"
                     session.execute(
                         update(LocalAttachmentExtraction)
                         .where(
                             LocalAttachmentExtraction.attachment_id == attachment_id,
                             LocalAttachmentExtraction.state == "pending",
                         )
-                        .values(state="complete")
+                        .values(state=queue_state)
                     )
                     session.commit()
+
+        from campus_inbox.services import refresh_attachment_suggestion
+
+        # Refresh intent is durable so a failure/restart does not repeat OCR or lose the update.
+        with Session(self.engine) as session:
+            pending_refresh = session.exec(
+                select(LocalAttachmentExtraction.attachment_id, Attachment.message_id)
+                .join(Attachment, Attachment.id == LocalAttachmentExtraction.attachment_id)
+                .where(LocalAttachmentExtraction.state == "awaiting_refresh")
+                .limit(100)
+            ).all()
+        for attachment_id, message_id in pending_refresh:
+            if self.stopping.is_set() or not self.enabled:
+                break
+            with Session(self.engine) as session:
+                if message_id:
+                    refresh_attachment_suggestion(session, message_id)
+                session.execute(
+                    update(LocalAttachmentExtraction)
+                    .where(
+                        LocalAttachmentExtraction.attachment_id == attachment_id,
+                        LocalAttachmentExtraction.state == "awaiting_refresh",
+                    )
+                    .values(state="complete")
+                )
+                session.commit()
 
     def _queue_loop(self):
         while not self.stopping.is_set():

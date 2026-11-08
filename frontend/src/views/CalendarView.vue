@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   courseEmoji,
   downloadCalendar,
+  deadlineExpired,
   deadlineKey,
   request,
   statusNames,
@@ -48,6 +49,7 @@ const loading = ref(false)
 const error = ref('')
 const exporting = ref(false)
 const exportMessage = ref('')
+const expandedDays = ref<Record<string, boolean>>({})
 let revision = 0
 const courses = computed(() =>
   [
@@ -58,9 +60,12 @@ const courses = computed(() =>
     ),
   ].sort(),
 )
+const datedTasks = computed(() =>
+  (feed.value?.tasks || []).filter((task) => !deadlineExpired(task, store.clock)),
+)
 const grouped = computed(() => {
   const result: Record<string, Task[]> = {}
-  for (const task of feed.value?.tasks || []) {
+  for (const task of datedTasks.value) {
     const key = deadlineKey(task)
     if (!key) continue
     ;(result[key] ||= []).push(task)
@@ -92,6 +97,11 @@ function update(patch: Record<string, string>) {
       ...patch,
     },
   })
+}
+function toggleDay(day: Date) {
+  const date = dayKey(day)
+  expandedDays.value[date] = !expandedDays.value[date]
+  void update({ date })
 }
 function move(count: number) {
   const value =
@@ -162,7 +172,7 @@ onUnmounted(() => {
   window.removeEventListener('focus', refreshVisible)
 })
 async function exportIcs() {
-  if (exporting.value || !feed.value?.tasks.length) return
+  if (exporting.value || !datedTasks.value.length) return
   exporting.value = true
   error.value = ''
   exportMessage.value = ''
@@ -193,7 +203,7 @@ async function exportIcs() {
         刷新日历 ↻</button
       ><button
         class="ci-btn ci-primary cursor-interaction"
-        :disabled="exporting || loading || !feed?.tasks.length"
+        :disabled="exporting || loading || !datedTasks.length"
         @click="exportIcs"
       >
         {{ exporting ? '正在导出…' : '导出当前视图 .ics ↓' }}
@@ -265,7 +275,7 @@ async function exportIcs() {
   <section class="ci-calendar-board" :aria-label="`${heading}截止日历`">
     <div class="ci-sectionhead">
       <h2>
-        {{ heading }} <span class="ci-count">{{ feed?.tasks.length || 0 }} 项截止任务</span>
+        {{ heading }} <span class="ci-count">{{ datedTasks.length }} 项截止任务</span>
       </h2>
       <span class="ci-muted">周一开始 · 已选 {{ selected }}</span>
     </div>
@@ -284,6 +294,7 @@ async function exportIcs() {
           :class="{
             'ci-calendar-outside': !inMonth(day),
             'ci-calendar-selected': dayKey(day) === selected,
+            'ci-calendar-expanded': !!expandedDays[dayKey(day)],
           }"
         >
           <button
@@ -304,7 +315,7 @@ async function exportIcs() {
             <RouterLink
               v-for="task in (grouped[dayKey(day)] || []).slice(
                 0,
-                view === 'month' ? 2 : undefined,
+                view === 'month' && !expandedDays[dayKey(day)] ? 2 : undefined,
               )"
               :key="task.id"
               :to="`/tasks/${task.id}`"
@@ -322,10 +333,17 @@ async function exportIcs() {
               {{ courseEmoji(task.course) }} {{ task.title }}</RouterLink
             ><button
               v-if="view === 'month' && (grouped[dayKey(day)]?.length || 0) > 2"
+              type="button"
               class="ci-calendar-more cursor-interaction"
-              @click="update({ date: dayKey(day) })"
+              :aria-expanded="!!expandedDays[dayKey(day)]"
+              :aria-label="`${expandedDays[dayKey(day)] ? '收起' : '展开'}${dayKey(day)}的任务`"
+              @click="toggleDay(day)"
             >
-              还有 {{ grouped[dayKey(day)]!.length - 2 }} 项 ↓
+              {{
+                expandedDays[dayKey(day)]
+                  ? '收起 ↑'
+                  : `还有 ${grouped[dayKey(day)]!.length - 2} 项 ↓`
+              }}
             </button>
           </div>
         </div>

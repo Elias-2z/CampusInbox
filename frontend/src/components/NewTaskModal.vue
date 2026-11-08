@@ -275,6 +275,7 @@ async function submit() {
     '内容已整理，请核对字段后确认。',
   )
   if (result) {
+    if (result.status === 'archived') store.notice = '通知已归档，可查看原文。'
     store.importing = false
     await router.push({ path: '/inbox', query: { id: result.id } })
   }

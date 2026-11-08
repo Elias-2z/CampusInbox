@@ -308,6 +308,20 @@ class TaskDetail(BaseModel):
     method: str
 
 
+class TaskRecognitionRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+    message_id: str | None = None
+
+
+class TaskRecognitionPreview(BaseModel):
+    task: TaskRead
+    fields: dict
+    evidence: dict
+    warnings: list[str]
+    method: str
+    message: MessageRead
+
+
 class PlatformStatusUpdate(BaseModel):
     expected_version: int = Field(ge=1)
     observation_id: str = Field(min_length=1, max_length=100)
@@ -318,7 +332,7 @@ class SplitDraftRead(ReadModel):
     id: str
     position: int
     quote: str
-    status: Literal["pending", "accepted", "ignored"]
+    status: Literal["pending", "accepted", "ignored", "archived"]
     can_create: bool
     fields: dict
     evidence: dict

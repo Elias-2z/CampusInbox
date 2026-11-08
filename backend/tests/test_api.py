@@ -1,8 +1,10 @@
 import asyncio
+from datetime import UTC, datetime
 
 import httpx
 import pytest
 
+from campus_inbox.connectors import chaoxing
 from campus_inbox.main import create_app
 from campus_inbox.providers import ProviderError
 from campus_inbox.schemas import TaskFields
@@ -33,7 +35,8 @@ def anyio_backend():
 
 
 @pytest.fixture
-async def client(tmp_path):
+async def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(chaoxing, "now", lambda: datetime(2026, 10, 29, 7, tzinfo=UTC))
     FakeProvider.calls, FakeProvider.fail = 0, False
     app = create_app(tmp_path / "test.db", FakeProvider)
     async with app.router.lifespan_context(app):

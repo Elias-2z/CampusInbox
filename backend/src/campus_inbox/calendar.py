@@ -34,7 +34,13 @@ STATUS_NAMES = {
 
 
 def feed(
-    session: Session, start: date, end: date, timezone: str, status: CalendarScope, course: str
+    session: Session,
+    start: date,
+    end: date,
+    timezone: str,
+    status: CalendarScope,
+    course: str,
+    current: datetime,
 ) -> CalendarFeed:
     if not 0 < (end - start).days <= 62:
         raise HTTPException(422, "日期范围须为 1–62 天，结束日期不包含在内。")
@@ -56,11 +62,12 @@ def feed(
         query = query.where(Task.status == status)
     if course:
         query = query.where(Task.course == course)
+    today = current.astimezone(ZoneInfo("Asia/Shanghai")).date()
     dated = session.exec(
         query.where(
             or_(
-                and_(Task.due_at >= lower, Task.due_at < upper),
-                and_(Task.due_date >= start, Task.due_date < end),
+                and_(Task.due_at >= lower, Task.due_at < upper, Task.due_at > current),
+                and_(Task.due_date >= max(start, today), Task.due_date < end),
             )
         )
     ).all()
@@ -69,7 +76,12 @@ def feed(
             Task.created_at, Task.id
         )
     ).all()
-    task_reads = [TaskRead.model_validate(task) for task in dated]
+    from campus_inbox.connectors.chaoxing import closed_checkin_suggestions
+
+    closed = closed_checkin_suggestions(session, [task.suggestion_id for task in dated], current)
+    task_reads = [
+        TaskRead.model_validate(task) for task in dated if task.suggestion_id not in closed
+    ]
     task_reads.sort(
         key=lambda task: (
             task.due_date or task.due_at.astimezone(zone).date(),

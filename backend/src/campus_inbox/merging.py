@@ -54,14 +54,22 @@ def change_read(session: Session, change: MergeChange) -> MergeChangeRead:
 def pending_source(session: Session, suggestion_id: str, split_id: str | None):
     suggestion = require(session, Suggestion, suggestion_id)
     message = require(session, Message, suggestion.message_id)
-    from campus_inbox.connectors.chaoxing import checkin_event
+    from campus_inbox.connectors.chaoxing import EXPIRED_NOTICE, archive_expired, checkin_event
 
     if checkin_event(session, message):
         raise HTTPException(409, "签到按平台场次处理，不能按同名任务合并。")
+    archive_expired(session, suggestion_id=suggestion.id, commit=False)
+    if suggestion.status == "archived":
+        reason = suggestion.warnings[-1] if suggestion.warnings else "通知已归档。"
+        session.commit()
+        raise HTTPException(409, reason)
     if suggestion.status != "pending":
         raise HTTPException(409, "通知已处理或正在识别，请刷新后核对。")
     if split_id:
         source = require(session, SplitDraft, split_id)
+        if source.suggestion_id == suggestion.id and source.status == "archived":
+            session.commit()
+            raise HTTPException(409, EXPIRED_NOTICE)
         if (
             source.suggestion_id != suggestion.id
             or source.status != "pending"
@@ -85,12 +93,18 @@ def preview(
 ) -> MergePreview:
     source, suggestion, message = pending_source(session, suggestion_id, split_id)
     task = require(session, Task, body.task_id)
+    require_same_course(session, message, source.fields, task)
+    from campus_inbox.services import message_read, source_fields
+
+    fields, evidence = source_fields(
+        source.fields, source.evidence, message_read(session, message).source_context or {}
+    )
     if task.status not in {"todo", "in_progress", "done"}:
         raise HTTPException(409, "只能关联尚未提交的任务，请先核对状态。")
     snapshot = task_snapshot(task)
     selected = {}
     for key in dict.fromkeys(body.fields):
-        value = source.fields.get(key)
+        value = fields.get(key)
         if value in (None, ""):
             raise HTTPException(422, "选中的字段没有明确通知内容，不能用空值清空原任务。")
         selected[key] = value
@@ -120,7 +134,7 @@ def preview(
     incoming_due = source.fields.get("due_at")
     if task.due_at and incoming_due and task.due_at != datetime.fromisoformat(incoming_due):
         warnings.append("截止时间存在冲突，请对照原文核对；未勾选截止时间时会保留原值。")
-    if task.course and source.fields.get("course") and task.course != source.fields["course"]:
+    if task.course and fields.get("course") and task.course != fields["course"]:
         warnings.append("通知与目标任务的课程不同，请确认关联的是同一项任务。")
     if message.dedupe_key.startswith("unknown-time:") and selected:
         warnings.append("原通知发布时间未知，请核对字段后再关联。")
@@ -137,7 +151,7 @@ def preview(
         after_fields=selected,
         evidence={
             key: {
-                **source.evidence.get(key, {"method": "user", "quote": "用户确认采用通知字段"}),
+                **evidence.get(key, {"method": "user", "quote": "用户确认采用通知字段"}),
                 "message_id": message.id,
                 "confirmed": True,
             }
@@ -156,6 +170,20 @@ def preview(
         warnings=warnings,
         created_at=proposal.created_at,
     )
+
+
+def require_same_course(session: Session, message: Message, fields: dict, task: Task):
+    from campus_inbox.services import association_conflict, message_read, source_fields
+
+    context = message_read(session, message).source_context or {}
+    effective, _ = source_fields(fields, {}, context)
+    if conflict := association_conflict(effective, task):
+        raise HTTPException(422, f"通知与目标任务的{conflict}，不能关联；请核对或创建独立任务。")
+    from campus_inbox.connectors.platform_status import message_identity, task_identities
+
+    key = message_identity(session, message)
+    if key and any(existing != key for existing in task_identities(session).get(task.id, set())):
+        raise HTTPException(422, "学习通任务编号或所属账号不同，不能关联为同一任务。")
 
 
 def values(fields: dict) -> dict:
@@ -178,6 +206,7 @@ def confirm(session: Session, proposal_id: str) -> MergeChangeRead:
         session, proposal.suggestion_id, proposal.split_draft_id
     )
     task = require(session, Task, proposal.task_id)
+    require_same_course(session, message, source.fields, task)
     if source.updated_at != proposal.source_updated_at:
         raise HTTPException(409, "通知或草稿在预览后已更新，请重新预览。")
     if task.version != proposal.task_version or task.status not in {"todo", "in_progress", "done"}:

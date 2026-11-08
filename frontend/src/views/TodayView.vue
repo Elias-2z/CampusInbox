@@ -10,11 +10,6 @@ const today = computed(() => new Date(store.clock))
 const active = computed(() =>
   store.active.filter((task) => !task.checkin_closed && !deadlineExpired(task, store.clock)),
 )
-const upcomingReminders = computed(() =>
-  store.unreadReminders.filter(
-    (item) => item.phase === 'upcoming' && !deadlineExpired(item, store.clock),
-  ),
-)
 const days = computed(() =>
   Array.from({ length: 7 }, (_, index) => {
     const date = new Date(today.value)
@@ -113,8 +108,8 @@ const total = computed(() => completed.value + active.value.length)
         <div class="ci-teaseicon" aria-hidden="true">🔔</div>
         <h3>
           {{
-            upcomingReminders.length
-              ? `${upcomingReminders.length} 条提醒，别错过`
+            store.unreadReminders.length
+              ? `${store.unreadReminders.length} 条提醒，别错过`
               : '截止提醒，替你留意'
           }}
         </h3>
@@ -124,7 +119,7 @@ const total = computed(() => completed.value + active.value.length)
         </p>
         <p v-else>即将截止的任务会在这里提醒。页面打开时自动检查。</p>
         <RouterLink
-          v-for="item in upcomingReminders.slice(0, 3)"
+          v-for="item in store.unreadReminders.slice(0, 3)"
           :key="item.id"
           class="ci-daytask"
           :to="`/tasks/${item.task.id}`"

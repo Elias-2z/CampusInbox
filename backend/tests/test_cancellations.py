@@ -196,7 +196,8 @@ async def test_same_notice_cannot_cancel_two_tasks_or_skip_selection(client):
     first = await task(client)
     second = await task(client, course="软件工程")
     item = await notice(client, "实验四报告取消，不用再提交。")
-    assert len(item["matched_tasks"]) == 2
+    # With no course in the notice, neither course may be recommended by title alone.
+    assert item["matched_tasks"] == []
     assert (
         await client.post(f"/api/suggestions/{item['id']}/cancellation-preview", json={})
     ).status_code == 422

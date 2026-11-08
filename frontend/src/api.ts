@@ -112,7 +112,7 @@ export interface SplitDraft {
   id: string
   position: number
   quote: string
-  status: 'pending' | 'accepted' | 'ignored'
+  status: 'pending' | 'accepted' | 'ignored' | 'archived'
   can_create: boolean
   fields: Partial<TaskInput>
   evidence: Record<string, Evidence>
@@ -153,6 +153,15 @@ export interface TaskDetail {
   events: TaskEvent[]
   evidence: Record<string, Evidence>
   method: string
+}
+
+export interface TaskRecognitionPreview {
+  task: Task
+  fields: Partial<TaskInput>
+  evidence: Record<string, Evidence>
+  warnings: string[]
+  method: string
+  message: Message
 }
 export interface DeadlinePreview {
   id: string

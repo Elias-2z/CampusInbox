@@ -41,6 +41,34 @@ def notice(**overrides):
     return job
 
 
+def test_platform_course_wins_over_short_course_in_body(intake):
+    event_id, _ = intake.receive(
+        "local-account",
+        notice(course="数据库系统应用", text="数据库：请于2026年12月8日18:00前提交实验报告。"),
+    )
+    assert intake.process(event_id) == "done"
+    with Session(intake.engine) as session:
+        suggestion = session.exec(select(Suggestion)).one()
+        assert suggestion.fields["course"] == "数据库系统应用"
+        assert suggestion.evidence["course"]["method"] == "connector"
+
+
+def test_old_pending_notice_matches_platform_course_without_rewriting_saved_data(intake):
+    event_id, _ = intake.receive("local-account", notice())
+    assert intake.process(event_id) == "done"
+    with Session(intake.engine) as session:
+        suggestion = session.exec(select(Suggestion)).one()
+        correct = services.manual_create(session, TaskFields(title="实验报告", course="软件工程"))
+        services.manual_create(session, TaskFields(title="实验报告", course="数据库"))
+        suggestion.fields = {**suggestion.fields, "course": "数据库"}
+        session.add(suggestion)
+        session.commit()
+        item = services.inbox_item(session, suggestion)
+        assert item.fields["course"] == "软件工程"
+        assert [t.id for t in item.matched_tasks] == [correct.id]
+        assert suggestion.fields["course"] == "数据库"
+
+
 def test_known_time_enters_main_inbox_once_without_creating_formal_task(intake):
     event_id, created = intake.receive("local-account", notice())
     assert created
@@ -378,6 +406,7 @@ def test_task_center_countdown_is_not_a_new_content_version(intake):
     [
         "作业即将截止提醒\n课程名称：软件工程\n作业名称：实验报告\n你的作业还剩2小时即将截止",
         "考试结束提醒\n课程名称：软件工程\n考试名称：期末考试\n本次考试已收卷",
+        "课程名称：测试\n作业名称：作业20261101\n你的作业还有24个小时就要结束，请尽快作答\n\n\u200b",
     ],
 )
 def test_platform_reminder_archive_keeps_new_instructions_and_media_in_review(intake, text):
@@ -680,7 +709,7 @@ def test_historical_deadline_requires_clear_platform_evidence_and_preserves_toda
     assert not historical_deadline({**base, "deadline": "2000-01-01", "kind": "chat"}, current)
 
 
-def test_historical_notice_matching_existing_task_remains_reviewable(intake):
+def test_historical_notice_matching_existing_task_is_archived(intake):
     with Session(intake.engine) as session:
         services.manual_create(session, TaskFields(title="实验报告", course="软件工程"))
     event_id, _ = intake.receive(
@@ -699,7 +728,7 @@ def test_historical_notice_matching_existing_task_remains_reviewable(intake):
     with Session(intake.engine) as session:
         event = session.get(ChaoxingEvent, event_id)
         suggestion = session.get(Suggestion, event.suggestion_id)
-        assert suggestion.status == "pending"
+        assert suggestion.status == "archived"
         assert services.matching_tasks(session, suggestion.fields)
 
 

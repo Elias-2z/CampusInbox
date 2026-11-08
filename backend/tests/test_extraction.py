@@ -9,6 +9,111 @@ ANCHOR = datetime(2026, 10, 29, 14, 20, tzinfo=ZoneInfo("Asia/Shanghai"))
 
 
 @pytest.mark.parametrize(
+    ("phrase", "clock", "day"),
+    [
+        ("11/9 20:00前提交", "2026-11-09T12:00:00+00:00", None),
+        ("11-09 20:00前提交", "2026-11-09T12:00:00+00:00", None),
+        ("2026.11.09 20:00前提交", "2026-11-09T12:00:00+00:00", None),
+        ("截止时间：2026-11-09T20:00:00+09:00", "2026-11-09T11:00:00+00:00", None),
+        ("11月9日20:00前在学习通提交", "2026-11-09T12:00:00+00:00", None),
+        ("11月9日20:00前请提交", "2026-11-09T12:00:00+00:00", None),
+        ("11月9日24:00前提交", "2026-11-09T16:00:00+00:00", None),
+        ("下周一课前交", None, "2026-11-02"),
+        ("下周五放学前提交", None, "2026-11-06"),
+        ("周一中午前提交", None, "2026-11-02"),
+        ("11月9号交给班长", None, "2026-11-09"),
+        ("2026年11月9日周一晚上8点前提交", "2026-11-09T12:00:00+00:00", None),
+        ("2026年11月9日周二晚上8点前提交", None, None),
+        ("11月9日下午三点到五点之间提交", None, None),
+        ("11月9日午夜前提交", None, "2026-11-09"),
+    ],
+)
+@pytest.mark.parametrize("scoped", [False, True])
+def test_deadline_formats_and_windows(phrase, clock, day, scoped):
+    text = "软件工程：实验报告，" + phrase + "。"
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=scoped)
+    assert (result.fields["due_at"], result.fields["due_date"]) == (clock, day)
+
+
+def test_explicit_revision_to_new_deadline_is_a_change():
+    text = "实验报告原定11月8日20:00截止，现改至11月9日22:00。"
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=True)
+    assert result.action == "review"
+    assert result.fields["due_at"] == "2026-11-09T14:00:00+00:00"
+    assert result.fields["title"] == "实验报告"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "大家都提交作业了吗？",
+        "老师，实验报告是明天18:00前提交吗？",
+        "软件工程：本周没有作业。",
+        "作业已提交成功，系统回执仅供留存。",
+    ],
+)
+def test_question_and_status_messages_do_not_create_tasks(text):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert result.action == "ignore"
+    assert not result.fields["due_at"] and not result.fields["due_date"]
+
+
+def test_negated_deadline_does_not_fill_review_draft():
+    text = "不是今天19:00前提交实验报告，具体时间另行通知。"
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert result.action == "review"
+    assert result.fields["due_at"] is None
+    merge_model(result, {"due_text": "不是今天19:00"}, text, ANCHOR, "Asia/Shanghai")
+    assert result.fields["due_at"] is None
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+def test_before_class_submission_has_date_without_assumed_clock(scoped):
+    result = extract_rules(
+        "周一上课前提交实验报告。", ANCHOR, "Asia/Shanghai", scoped_deadline=scoped
+    )
+    assert result.fields["due_date"] == "2026-11-02"
+    assert result.fields["due_at"] is None
+
+
+def test_real_deadline_is_preserved_when_followed_by_a_question():
+    text = "通知：明天18:00前提交实验报告，请问后天还要提交作业吗？"
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert result.action == "create"
+    assert result.fields["due_at"] == "2026-10-30T10:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "数据库原理：作业成绩已公布，请自行查看。",
+        "实验报告提交成功，请注意查收。",
+        "第一次作业已批阅，可在学习通查看。",
+        "期末考试已结束。",
+    ],
+)
+def test_status_only_notice_is_not_a_task(text):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai")
+    assert result.action == "ignore"
+    assert not result.needs_llm
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "作业成绩已公布，请在明天18:00前提交成绩复核申请。",
+        "实验报告提交成功，请在下周一重新上传源代码。",
+        "考试已结束，请于明天提交实验报告。",
+        "数据库原理：下周一9:00进行期中考试。",
+        "作业已退回，请修改后重新提交。",
+        "请确认实验报告已提交。",
+    ],
+)
+def test_status_notice_with_an_action_remains_reviewable(text):
+    assert extract_rules(text, ANCHOR, "Asia/Shanghai").action == "create"
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("数据库原理：下周一上午9:00进行期中考试，地点为教学楼A301。", "期中考试"),
@@ -111,6 +216,38 @@ def test_explicit_date_only_deadlines_are_preserved_without_a_time(text, expecte
     assert result.fields["due_at"] is None
     assert result.evidence["due_date"]["quote"] in text
     assert any("时刻" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "11 月 9 日在学习通提交第一次作业",
+        "11月9日在学习通提交第一次作业",
+        "2026 年 11 月 9 日通过学习通上传第一次作业",
+        "十一 月 九 日在学习通提交第一次作业",
+    ],
+)
+def test_submission_dates_allow_spaces_and_platform_before_the_action(text, scoped):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=scoped)
+    assert result.fields["due_date"] == "2026-11-09"
+    assert result.fields["due_at"] is None
+    assert result.evidence["due_date"]["quote"] in text
+
+
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "11 月 9 日在学习通发布作业，截止时间待定。",
+        "11 月 9 日开始在学习通提交第一次作业。",
+        "11 月 9 日在学习通不用提交第一次作业。",
+    ],
+)
+def test_spaced_publication_start_and_negated_submission_dates_are_not_deadlines(text, scoped):
+    result = extract_rules(text, ANCHOR, "Asia/Shanghai", scoped_deadline=scoped)
+    assert not result.fields.get("due_date")
+    assert not result.fields.get("due_at")
 
 
 @pytest.mark.parametrize(
